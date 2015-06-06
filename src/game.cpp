@@ -567,11 +567,11 @@ void Cam_FollowEntity(struct camera_s *cam, struct entity_s *ent, btScalar dx, b
             float d_angle = cam_angles[0] - targetAngle;
             if(d_angle > M_PI / 2.0)
             {
-                d_angle -= M_PI;
+                d_angle -= M_PI/180.0;
             }
             if(d_angle < -M_PI / 2.0)
             {
-                d_angle += M_PI;
+                d_angle += M_PI/180.0;
             }
             cam_angles[0] = fmodf(cam_angles[0] + atan2f(sinf(currentAngle - d_angle), cosf(currentAngle + d_angle)) * (engine_frame_time * rotSpeed), M_PI * 2.0); //Update camera's angle
         }
