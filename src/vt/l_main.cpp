@@ -187,7 +187,7 @@ void TR_Level::GetPlatformAndVersion(const char* filename, SDL_RWops * const src
     uint32_t fileVersion;
     SDL_RWseek(src, 0, SEEK_SET); //Skip to offset 0
 
-    if(len < 0 && len >= 5)
+    if(len < 5)
         Sys_extError("Error: GetPlatformAndVersion() filename is too short!");
 
     this->platform_id = -1;
