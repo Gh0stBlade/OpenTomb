@@ -273,6 +273,23 @@ void Engine_BTInit()
      return 0;
  }
 
+int lua_print(lua_State * lua)
+{
+     int top = lua_gettop(lua);
+
+     if(top == 0)
+     {
+        Con_AddLine("nil");
+     }
+
+     for(int i=1;i<=top;i++)
+     {
+         Con_AddLine(lua_tostring(lua, i), FONTSTYLE_CONSOLE_EVENT);
+     }
+
+     return 0;
+}
+
  int lua_DumpModel(lua_State * lua)
  {
      int id = 0;
@@ -459,7 +476,9 @@ int lua_DisableEntity(lua_State * lua)
 
 int lua_SetEntityCollision(lua_State * lua)
 {
-    if(lua_gettop(lua) < 1)
+    int top = lua_gettop(lua);
+
+    if(top < 1)
     {
         Con_Warning(SYSWARN_ENTER_ENTITY_ID);
         return 0;
@@ -468,7 +487,7 @@ int lua_SetEntityCollision(lua_State * lua)
     entity_p ent = World_GetEntityByID(&engine_world, lua_tonumber(lua, 1));
     if(ent != NULL)
     {
-        if(lua_tointeger(lua, 2) != 0)
+        if((top >= 2) && (lua_tointeger(lua, 2) == 1))
         {
             Entity_EnableCollision(ent);
         }
@@ -481,6 +500,40 @@ int lua_SetEntityCollision(lua_State * lua)
     return 0;
 }
 
+int lua_SetEntityCollisionFlags(lua_State * lua)
+{
+    int top = lua_gettop(lua);
+
+    if(top < 1)
+    {
+        Con_Warning(SYSWARN_ENTER_ENTITY_ID);
+        return 0;
+    }
+
+    entity_p ent = World_GetEntityByID(&engine_world, lua_tonumber(lua, 1));
+    if(ent != NULL)
+    {
+        if((top >= 2) && !lua_isnil(lua, 2))
+        {
+            ent->self->collision_type = lua_tointeger(lua, 2);
+        }
+        if((top >= 3) && !lua_isnil(lua, 3))
+        {
+            ent->self->collision_type = lua_tointeger(lua, 3);
+        }
+
+        if(ent->self->collision_type & 0x0001)
+        {
+            Entity_EnableCollision(ent);
+        }
+        else
+        {
+            Entity_DisableCollision(ent);
+        }
+    }
+
+    return 0;
+}
 
 int lua_GetEntitySectorFlags(lua_State *lua)
 {
@@ -518,6 +571,33 @@ int lua_GetEntitySectorMaterial(lua_State *lua)
         lua_pushinteger(lua, ent->current_sector->material);
         return 1;
     }
+    return 0;
+}
+
+int lua_SameRoom(lua_State *lua)
+{
+    if(lua_gettop(lua) != 2)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[ent_id1, ent_id2]");
+        return 0;
+    }
+
+    entity_p ent1 = World_GetEntityByID(&engine_world, lua_tonumber(lua, 1));
+    entity_p ent2 = World_GetEntityByID(&engine_world, lua_tonumber(lua, 1));
+
+    if((ent1 != NULL) && (ent2 != NULL))
+    {
+        if(ent1->self->room == ent2->self->room)
+        {
+            lua_pushboolean(lua, true);
+        }
+        else
+        {
+            lua_pushboolean(lua, false);
+        }
+        return 1;
+    }
+
     return 0;
 }
 
@@ -591,9 +671,11 @@ int lua_SetGravity(lua_State * lua)                                             
 
 int lua_DropEntity(lua_State * lua)
 {
-    if(lua_gettop(lua) < 2)
+    int top = lua_gettop(lua);
+
+    if(top < 2)
     {
-        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_id], [time]");
+        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_id], [time], (only_room)");
         return 0;
     }
 
@@ -606,6 +688,7 @@ int lua_DropEntity(lua_State * lua)
     }
 
     btScalar time = lua_tonumber(lua, 2);
+
     btVector3 g = bt_engine_dynamicsWorld->getGravity();
     btVector3 move = ent->speed * time;;
     move += g * 0.5 * time * time;
@@ -618,18 +701,33 @@ int lua_DropEntity(lua_State * lua)
     to = from + move;
     to.m_floats[2] -= (ent->bf.bb_max[2] - ent->bf.bb_min[2]);
     bt_engine_dynamicsWorld->rayTest(from, to, cb);
+
     if(cb.hasHit())
     {
-        move.setInterpolate3(from ,to, cb.m_closestHitFraction);
-        ent->transform[12+2] = move.m_floats[2];
-        lua_pushboolean(lua, 1);
-        return 1;
+        bool only_room = (top > 2)?(lua_toboolean(lua, 3)):(false);
+        engine_container_p cont = (engine_container_p)cb.m_collisionObject->getUserPointer();
+
+        if((!only_room) || ((only_room) && (cont->object_type == OBJECT_ROOM_BASE)))
+        {
+            move.setInterpolate3(from ,to, cb.m_closestHitFraction);
+            ent->transform[12+2] = move.m_floats[2];
+
+            lua_pushboolean(lua, 1);
+        }
+        else
+        {
+            lua_pushboolean(lua, 0);
+        }
+    }
+    else
+    {
+        ent->transform[12+0] += move.m_floats[0];
+        ent->transform[12+1] += move.m_floats[1];
+        ent->transform[12+2] += move.m_floats[2];
+        lua_pushboolean(lua, 0);
     }
 
-    ent->transform[12+0] += move.m_floats[0];
-    ent->transform[12+1] += move.m_floats[1];
-    ent->transform[12+2] += move.m_floats[2];
-    lua_pushboolean(lua, 0);
+    Entity_UpdateRigidBody(ent, 1);
     return 1;
 }
 
@@ -777,10 +875,8 @@ int lua_GetCharacterCombatMode(lua_State * lua)
         lua_pushnumber(lua, ent->character->weapon_current_state);
         return 1;
     }
-    else
-    {
-        return 0;
-    }
+
+    return 0;
 }
 
 int lua_ChangeCharacterParam(lua_State * lua)
@@ -813,7 +909,6 @@ int lua_ChangeCharacterParam(lua_State * lua)
 
     return 0;
 }
-
 
 int lua_AddCharacterHair(lua_State *lua)
 {
@@ -1179,11 +1274,9 @@ int lua_AddItem(lua_State * lua)
         lua_pushinteger(lua, Character_AddItem(ent, item_id, count));
         return 1;
     }
-    else
-    {
-        Con_Warning(SYSWARN_NO_ENTITY, entity_id);
-        return 0;
-    }
+
+    Con_Warning(SYSWARN_NO_ENTITY, entity_id);
+    return 0;
 }
 
 
@@ -1206,11 +1299,9 @@ int lua_RemoveItem(lua_State * lua)
         lua_pushinteger(lua, Character_RemoveItem(ent, item_id, count));
         return 1;
     }
-    else
-    {
-        Con_Warning(SYSWARN_NO_ENTITY, entity_id);
-        return 0;
-    }
+
+    Con_Warning(SYSWARN_NO_ENTITY, entity_id);
+    return 0;
 }
 
 
@@ -1630,6 +1721,54 @@ int lua_GetEntityPosition(lua_State * lua)
     return 6;
 }
 
+int lua_GetEntityAngles(lua_State * lua)
+{
+    if(lua_gettop(lua) != 1)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[id]");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+        return 0;
+    }
+
+    lua_pushnumber(lua, ent->angles[0]);
+    lua_pushnumber(lua, ent->angles[1]);
+    lua_pushnumber(lua, ent->angles[2]);
+
+    return 3;
+}
+
+int lua_GetEntityScaling(lua_State * lua)
+{
+    if(lua_gettop(lua) != 1)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[id]");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+        return 0;
+    }
+
+    lua_pushnumber(lua, ent->scaling[0]);
+    lua_pushnumber(lua, ent->scaling[1]);
+    lua_pushnumber(lua, ent->scaling[2]);
+
+    return 3;
+}
+
 int lua_SimilarSector(lua_State * lua)
 {
     int top = lua_gettop(lua);
@@ -1659,12 +1798,15 @@ int lua_SimilarSector(lua_State * lua)
     next_pos[1] = ent->transform[12+1] + (dx * ent->transform[0+1] + dy * ent->transform[4+1] + dz * ent->transform[8+1]);
     next_pos[2] = ent->transform[12+2] + (dx * ent->transform[0+2] + dy * ent->transform[4+2] + dz * ent->transform[8+2]);
 
-    room_sector_p curr_sector = Room_GetSectorRaw(ent->self->room, ent->transform+12+0);
+    room_sector_p curr_sector = Room_GetSectorRaw(ent->self->room, ent->transform+12);
     room_sector_p next_sector = Room_GetSectorRaw(ent->self->room, next_pos);
+
+    curr_sector = Sector_CheckPortalPointer(curr_sector);
+    next_sector = Sector_CheckPortalPointer(next_sector);
 
     bool ignore_doors = lua_toboolean(lua, 5);
 
-    if((top >= 6) && (lua_toboolean(lua, 6) == true))
+    if((top >= 6) && lua_toboolean(lua, 6))
     {
         lua_pushboolean(lua, Sectors_SimilarCeiling(curr_sector, next_sector, ignore_doors));
     }
@@ -1676,6 +1818,49 @@ int lua_SimilarSector(lua_State * lua)
     return 1;
 }
 
+int lua_GetSectorHeight(lua_State * lua)
+{
+    int top = lua_gettop(lua);
+
+    if(top < 1)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_id, (ceiling), (dx, dy, dz)");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+        return 0;
+    }
+
+    bool ceiling = false;
+    if(top > 1) ceiling = lua_toboolean(lua, 2);
+
+    btScalar pos[3];
+    vec3_copy(pos, ent->transform+12);
+
+    if(top > 2)
+    {
+        btScalar dx = lua_tonumber(lua, 2);
+        btScalar dy = lua_tonumber(lua, 3);
+        btScalar dz = lua_tonumber(lua, 4);
+
+        pos[0] += dx * ent->transform[0+0] + dy * ent->transform[4+0] + dz * ent->transform[8+0];
+        pos[1] += dx * ent->transform[0+1] + dy * ent->transform[4+1] + dz * ent->transform[8+1];
+        pos[2] += dx * ent->transform[0+2] + dy * ent->transform[4+2] + dz * ent->transform[8+2];
+    }
+
+    room_sector_p curr_sector = Room_GetSectorRaw(ent->self->room, pos);
+    curr_sector = Sector_CheckPortalPointer(curr_sector);
+    btVector3 point = (ceiling)?(Sector_GetCeilingPoint(curr_sector)):(Sector_GetFloorPoint(curr_sector));
+
+    lua_pushnumber(lua, point.m_floats[2]);
+    return 1;
+}
 
 int lua_SetEntityPosition(lua_State * lua)
 {
@@ -1687,7 +1872,7 @@ int lua_SetEntityPosition(lua_State * lua)
                 entity_p ent = World_GetEntityByID(&engine_world, id);
                 if(ent == NULL)
                 {
-                    Con_Printf("can not find entity with id = %d", id);
+                    Con_Warning(SYSWARN_NO_ENTITY, id);
                     return 0;
                 }
                 ent->transform[12+0] = lua_tonumber(lua, 2);
@@ -1706,7 +1891,7 @@ int lua_SetEntityPosition(lua_State * lua)
                 entity_p ent = World_GetEntityByID(&engine_world, id);
                 if(ent == NULL)
                 {
-                    Con_Printf("can not find entity with id = %d", id);
+                    Con_Warning(SYSWARN_NO_ENTITY, id);
                     return 0;
                 }
                 ent->transform[12+0] = lua_tonumber(lua, 2);
@@ -1715,7 +1900,7 @@ int lua_SetEntityPosition(lua_State * lua)
                 ent->angles[0] = lua_tonumber(lua, 5);
                 ent->angles[1] = lua_tonumber(lua, 6);
                 ent->angles[2] = lua_tonumber(lua, 7);
-                Entity_UpdateRotation(ent);
+                Entity_UpdateTransform(ent);
                 if(ent->character)
                 {
                     Character_UpdatePlatformPreStep(ent);
@@ -1731,6 +1916,82 @@ int lua_SetEntityPosition(lua_State * lua)
     return 0;
 }
 
+int lua_SetEntityAngles(lua_State * lua)
+{
+    int top = lua_gettop(lua);
+
+    if(top < 2)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_id, fi_x], (fi_y, fi_z)");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+    }
+    else
+    {
+        ent->angles[0] = lua_tonumber(lua, 2);
+
+        if(top > 2)
+        {
+            ent->angles[1] = lua_tonumber(lua, 3);
+            ent->angles[2] = lua_tonumber(lua, 4);
+        }
+
+        Entity_UpdateTransform(ent);
+    }
+
+    return 0;
+}
+
+int lua_SetEntityScaling(lua_State * lua)
+{
+    int top = lua_gettop(lua);
+
+    if(top < 4)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_id, x_scaling, y_scaling, z_scaling]");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+    }
+    else
+    {
+        ent->scaling[0] = lua_tonumber(lua, 2);
+        ent->scaling[1] = lua_tonumber(lua, 3);
+        ent->scaling[2] = lua_tonumber(lua, 4);
+
+        if((ent->bf.bone_tag_count > 0) && (ent->bt.bt_body))
+        {
+            for(int i=0; i<ent->bf.bone_tag_count; i++)
+            {
+                if(ent->bt.bt_body[i] != NULL)
+                {
+                    bt_engine_dynamicsWorld->removeRigidBody(ent->bt.bt_body[i]);
+                        ent->bt.bt_body[i]->getCollisionShape()->setLocalScaling(btVector3(ent->scaling[0], ent->scaling[1], ent->scaling[2]));
+                    bt_engine_dynamicsWorld->addRigidBody(ent->bt.bt_body[i]);
+
+                    ent->bt.bt_body[i]->activate();
+                }
+            }
+        }
+
+        Entity_UpdateRigidBody(ent, 1);
+    }
+
+    return 0;
+}
 
 int lua_MoveEntityGlobal(lua_State * lua)
 {
@@ -1811,15 +2072,16 @@ int lua_MoveEntityToSink(lua_State * lua)
 
     btVector3 sink_pos; sink_pos.m_floats[0] = sink->x;
                         sink_pos.m_floats[1] = sink->y;
-
-                    if(engine_world.version < TR_II)
-                    {
-                        sink_pos.m_floats[2] = ent_pos.m_floats[2];
-                    }
-                    else
-                    {
                         sink_pos.m_floats[2] = sink->z + 256.0; // Prevents digging into the floor.
-                    }
+
+    room_sector_p ls = Sector_GetLowest(ent->current_sector);
+    room_sector_p hs = Sector_GetHighest(ent->current_sector);
+
+    if((sink_pos.m_floats[2] > hs->ceiling) ||
+       (sink_pos.m_floats[2] < ls->floor) )
+    {
+        sink_pos.m_floats[2] = ent_pos.m_floats[2];
+    }
 
     btScalar dist = btDistance(ent_pos, sink_pos);
     if(dist == 0.0) dist = 1.0; // Prevents division by zero.
@@ -1837,9 +2099,11 @@ int lua_MoveEntityToSink(lua_State * lua)
 
 int lua_MoveEntityToEntity(lua_State * lua)
 {
-    if(lua_gettop(lua) < 3)
+    int top = lua_gettop(lua);
+
+    if(top < 3)
     {
-        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_to_move_id, entity_id, speed]");
+        Con_Warning(SYSWARN_WRONG_ARGS, "[entity_to_move_id, entity_id, speed], (ignore_z)");
         return 0;
     }
 
@@ -1862,9 +2126,46 @@ int lua_MoveEntityToEntity(lua_State * lua)
 
     ent1->transform[12+0] += speed.m_floats[0];
     ent1->transform[12+1] += speed.m_floats[1];
-    ent1->transform[12+2] += speed.m_floats[2];
+
+    bool ignore_z = (top > 3)?(lua_toboolean(lua, 4)):(false);
+    if(!ignore_z) ent1->transform[12+2] += speed.m_floats[2];
+
     if(ent1->character) Character_UpdatePlatformPreStep(ent1);
     Entity_UpdateRigidBody(ent1, 1);
+
+    return 0;
+}
+
+int lua_RotateEntity(lua_State *lua)
+{
+    int top = lua_gettop(lua);
+
+    if((top > 4) || (top < 2))
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[ent_id, rot_x], (rot_y, rot_z)");
+        return 0;
+    }
+
+    int id = lua_tointeger(lua, 1);
+    entity_p ent = World_GetEntityByID(&engine_world, id);
+
+    if(ent == NULL)
+    {
+        Con_Warning(SYSWARN_NO_ENTITY, id);
+    }
+    else
+    {
+        ent->angles[0] += lua_tonumber(lua, 2);
+
+        if(top == 4)
+        {
+             ent->angles[1] += lua_tonumber(lua, 3);
+             ent->angles[2] += lua_tonumber(lua, 4);
+        }
+
+        Entity_UpdateTransform(ent);
+        Entity_UpdateRigidBody(ent, 1);
+    }
 
     return 0;
 }
@@ -1915,26 +2216,32 @@ int lua_GetEntitySpeedLinear(lua_State * lua)
 
 int lua_SetEntitySpeed(lua_State * lua)
 {
+    int top = lua_gettop(lua);
+
+    if(top < 2)
+    {
+        Con_Warning(SYSWARN_WRONG_ARGS, "[id, speed_x], (speed_y, speed_z)");
+        return 0;
+    }
+
     int id = lua_tointeger(lua, 1);
     entity_p ent = World_GetEntityByID(&engine_world, id);
 
     if(ent == NULL)
     {
         Con_Warning(SYSWARN_NO_ENTITY, id);
-        return 0;
     }
-
-    switch(lua_gettop(lua))
+    else
     {
-        case 4:
-            ent->speed[0] = lua_tonumber(lua, 2);
+        ent->speed[0] = lua_tonumber(lua, 2);
+
+        if(top > 2)
+        {
             ent->speed[1] = lua_tonumber(lua, 3);
             ent->speed[2] = lua_tonumber(lua, 4);
-            break;
+        }
 
-        default:
-            Con_Warning(SYSWARN_WRONG_ARGS, "[id, Vx, Vy, Vz]");
-            break;
+        Entity_UpdateCurrentSpeed(ent);
     }
 
     return 0;
@@ -3209,7 +3516,7 @@ int lua_SetEntityBodyMass(lua_State *lua)
                     ent->bt.bt_body[i]->updateInertiaTensor();
                     ent->bt.bt_body[i]->clearForces();
 
-                    ent->bt.bt_body[i]->getCollisionShape()->setLocalScaling(btVector3(1.0, 1.0, 1.0));
+                    ent->bt.bt_body[i]->getCollisionShape()->setLocalScaling(btVector3(ent->scaling[0], ent->scaling[1], ent->scaling[2]));
 
                     btVector3 factor = (mass > 0.0)?(btVector3(1.0, 1.0, 1.0)):(btVector3(0.0, 0.0, 0.0));
                     ent->bt.bt_body[i]->setLinearFactor (factor);
@@ -3366,11 +3673,27 @@ int lua_SetCharacterCurrentWeapon(lua_State *lua)
 
 int lua_CamShake(lua_State *lua)
 {
-    if(lua_gettop(lua) != 2) return 0;
+    int top = lua_gettop(lua);
+
+    if(top < 2) return 0;
 
     float power = lua_tonumber(lua, 1);
     float time  = lua_tonumber(lua, 2);
-    Cam_Shake(renderer.cam, power, time);
+
+    if(top > 2)
+    {
+        int id = lua_tointeger(lua, 3);
+        entity_p ent = World_GetEntityByID(&engine_world, id);
+
+        btScalar cam_pos[3] = {renderer.cam->pos[0], renderer.cam->pos[1], renderer.cam->pos[2]};
+
+        btScalar dist = vec3_dist(ent->transform+12, cam_pos);
+        dist = (dist > TR_CAM_MAX_SHAKE_DISTANCE)?(0):(1.0 - (dist / TR_CAM_MAX_SHAKE_DISTANCE));
+
+        power *= dist;
+    }
+
+    if(power > 0.0) Cam_Shake(renderer.cam, power, time);
 
     return 0;
 }
@@ -3457,8 +3780,7 @@ int lua_PlaySound(lua_State *lua)
         return 0;
     }
 
-    int id = lua_tointeger(lua, 1); if(id < 0) return 0;
-
+    uint32_t id  = lua_tointeger(lua, 1);           // uint_t can't been less zero, reduce number of comparations
     if(id >= engine_world.audio_map_count)
     {
         Con_Warning(SYSWARN_WRONG_SOUND_ID, engine_world.audio_map_count);
@@ -3477,11 +3799,11 @@ int lua_PlaySound(lua_State *lua)
 
     if(ent_id >= 0)
     {
-        result = Audio_Send((uint32_t)id, TR_AUDIO_EMITTER_ENTITY, ent_id);
+        result = Audio_Send(id, TR_AUDIO_EMITTER_ENTITY, ent_id);
     }
     else
     {
-        result = Audio_Send((uint32_t)id, TR_AUDIO_EMITTER_GLOBAL);
+        result = Audio_Send(id, TR_AUDIO_EMITTER_GLOBAL);
     }
 
     if(result < 0)
@@ -3662,7 +3984,7 @@ int lua_SetFlipState(lua_State *lua)
 
         if(engine_world.version > TR_III)
         {
-            for(unsigned i=0;i<engine_world.room_count;i++, current_room++)
+            for(uint32_t i=0;i<engine_world.room_count;i++, current_room++)
             {
                 if(current_room->alternate_group == group)    // Check if group is valid.
                 {
@@ -3681,7 +4003,7 @@ int lua_SetFlipState(lua_State *lua)
         }
         else
         {
-            for(unsigned i=0;i<engine_world.room_count;i++,current_room++)
+            for(uint32_t i=0;i<engine_world.room_count;i++,current_room++)
             {
                 if(state)
                 {
@@ -3896,7 +4218,7 @@ void Engine_LuaClearTasks()
 void lua_registerc(lua_State *lua, const char* func_name, int(*func)(lua_State*))
 {
     char uc[64] = {0}; char lc[64] = {0};
-    for(unsigned i=0; i < strlen(func_name); i++)
+    for(size_t i=0; i < strlen(func_name); i++)
     {
         lc[i]=tolower(func_name[i]);
         uc[i]=toupper(func_name[i]);
@@ -3921,6 +4243,7 @@ void Engine_LuaRegisterFuncs(lua_State *lua)
 
     // Register script functions
 
+    lua_registerc(lua, "print", lua_print);
     lua_registerc(lua, "checkStack", lua_CheckStack);
     lua_registerc(lua, "dumpModel", lua_DumpModel);
     lua_registerc(lua, "dumpRoom", lua_DumpRoom);
@@ -3972,13 +4295,16 @@ void Engine_LuaRegisterFuncs(lua_State *lua)
     lua_register(lua, "enableEntity", lua_EnableEntity);
     lua_register(lua, "disableEntity", lua_DisableEntity);
 
+    lua_register(lua, "sameRoom", lua_SameRoom);
     lua_register(lua, "newSector", lua_NewSector);
     lua_register(lua, "similarSector", lua_SimilarSector);
+    lua_register(lua, "getSectorHeight", lua_GetSectorHeight);
 
     lua_register(lua, "moveEntityGlobal", lua_MoveEntityGlobal);
     lua_register(lua, "moveEntityLocal", lua_MoveEntityLocal);
     lua_register(lua, "moveEntityToSink", lua_MoveEntityToSink);
     lua_register(lua, "moveEntityToEntity", lua_MoveEntityToEntity);
+    lua_register(lua, "rotateEntity", lua_RotateEntity);
 
     lua_register(lua, "getEntityModelID", lua_GetEntityModelID);
 
@@ -3987,10 +4313,15 @@ void Engine_LuaRegisterFuncs(lua_State *lua)
     lua_register(lua, "getEntityDistance", lua_GetEntityDistance);
     lua_register(lua, "getEntityPos", lua_GetEntityPosition);
     lua_register(lua, "setEntityPos", lua_SetEntityPosition);
+    lua_register(lua, "getEntityAngles", lua_GetEntityAngles);
+    lua_register(lua, "setEntityAngles", lua_SetEntityAngles);
+    lua_register(lua, "getEntityScaling", lua_GetEntityScaling);
+    lua_register(lua, "setEntityScaling", lua_SetEntityScaling);
     lua_register(lua, "getEntitySpeed", lua_GetEntitySpeed);
     lua_register(lua, "setEntitySpeed", lua_SetEntitySpeed);
     lua_register(lua, "getEntitySpeedLinear", lua_GetEntitySpeedLinear);
     lua_register(lua, "setEntityCollision", lua_SetEntityCollision);
+    lua_register(lua, "setEntityCollisionFlags", lua_SetEntityCollisionFlags);
     lua_register(lua, "getEntityAnim", lua_GetEntityAnim);
     lua_register(lua, "setEntityAnim", lua_SetEntityAnim);
     lua_register(lua, "setEntityAnimFlag", lua_SetEntityAnimFlag);

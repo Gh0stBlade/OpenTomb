@@ -43,7 +43,8 @@ entity_p Entity_Create()
     ret->self->object = ret;
     ret->self->object_type = OBJECT_ENTITY;
     ret->self->room = NULL;
-    ret->self->collide_flag = 0;
+    ret->self->collision_type = COLLISION_TYPE_KINEMATIC;
+    ret->self->collision_shape = COLLISION_SHAPE_TRIMESH;
     ret->obb = OBB_Create();
     ret->obb->transform = ret->transform;
     ret->bt.bt_body = NULL;
@@ -55,6 +56,10 @@ entity_p Entity_Create()
     ret->bt.shapes = NULL;
     ret->bt.ghostObjects = NULL;
     ret->bt.last_collisions = NULL;
+
+    ret->scaling[0] = 1.0;
+    ret->scaling[1] = 1.0;
+    ret->scaling[2] = 1.0;
 
     ret->character = NULL;
     ret->current_sector = NULL;
@@ -76,7 +81,12 @@ entity_p Entity_Create()
     vec3_set_zero(ret->bf.bb_min);
     vec3_set_zero(ret->bf.centre);
     vec3_set_zero(ret->bf.pos);
+    vec3_set_zero(ret->angles);
     vec4_set_zero(ret->speed.m_floats);
+    vec3_set_one(ret->scaling);
+
+    ret->speed_mult = DEFAULT_CHARACTER_SPEED_MULT;
+    ret->current_speed = 0.0;
 
     ret->activation_offset[0] = 0.0;
     ret->activation_offset[1] = 256.0;
@@ -245,17 +255,7 @@ void Entity_Enable(entity_p ent)
 {
     if(!(ent->state_flags & ENTITY_STATE_ENABLED))
     {
-        if(ent->bt.bt_body != NULL)
-        {
-            for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
-            {
-                btRigidBody *b = ent->bt.bt_body[i];
-                if((b != NULL) && !b->isInWorld())
-                {
-                    bt_engine_dynamicsWorld->addRigidBody(b);
-                }
-            }
-        }
+        Entity_EnableCollision(ent);
         ent->state_flags |= ENTITY_STATE_ENABLED | ENTITY_STATE_ACTIVE | ENTITY_STATE_VISIBLE;
     }
 }
@@ -265,17 +265,7 @@ void Entity_Disable(entity_p ent)
 {
     if(ent->state_flags & ENTITY_STATE_ENABLED)
     {
-        if(ent->bt.bt_body != NULL)
-        {
-            for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
-            {
-                btRigidBody *b = ent->bt.bt_body[i];
-                if((b != NULL) && b->isInWorld())
-                {
-                    bt_engine_dynamicsWorld->removeRigidBody(b);
-                }
-            }
-        }
+        Entity_DisableCollision(ent);
         ent->state_flags = 0x0000;
     }
 }
@@ -289,7 +279,7 @@ void Entity_EnableCollision(entity_p ent)
 {
     if(ent->bt.bt_body != NULL)
     {
-        ent->self->collide_flag = 0x01;
+        //ent->self->collision_type |= 0x0001;
         for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
         {
             btRigidBody *b = ent->bt.bt_body[i];
@@ -301,7 +291,7 @@ void Entity_EnableCollision(entity_p ent)
     }
     else
     {
-        ent->self->collide_flag = COLLISION_TRIMESH;                            ///@TODO: order collision shape and entity collision type flags! it is a different things!
+        ent->self->collision_type = COLLISION_TYPE_KINEMATIC;                   ///@TODO: order collision shape and entity collision type flags! it is a different things!
         BT_GenEntityRigidBody(ent);
     }
 }
@@ -311,7 +301,7 @@ void Entity_DisableCollision(entity_p ent)
 {
     if(ent->bt.bt_body != NULL)
     {
-        ent->self->collide_flag = 0x00;
+        //ent->self->collision_type &= ~0x0001;
         for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
         {
             btRigidBody *b = ent->bt.bt_body[i];
@@ -340,7 +330,27 @@ void BT_GenEntityRigidBody(entity_p ent)
     for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
     {
         base_mesh_p mesh = ent->bf.animations.model->mesh_tree[i].mesh_base;
-        btCollisionShape *cshape = BT_CSfromMesh(mesh, true, true, false);
+        btCollisionShape *cshape = NULL;
+        switch(ent->self->collision_shape)
+        {
+            case COLLISION_SHAPE_TRIMESH_CONVEX:
+                cshape = BT_CSfromMesh(mesh, true, true, false);
+                break;
+
+            case COLLISION_SHAPE_TRIMESH:
+                cshape = BT_CSfromMesh(mesh, true, true, true);
+                break;
+
+            case COLLISION_SHAPE_BOX:
+                cshape = BT_CSfromBBox(mesh->bb_min, mesh->bb_max, true, true);
+                break;
+
+                ///@TODO: add other shapes implementation; may be change default;
+            default:
+                 cshape = BT_CSfromMesh(mesh, true, true, true);
+                 break;
+        };
+
         ent->bt.bt_body[i] = NULL;
 
         if(cshape)
@@ -407,6 +417,12 @@ int Ghost_GetPenetrationFixVector(btPairCachingGhostObject *ghost, btManifoldArr
         {
             btPersistentManifold* manifold = (*manifoldArray)[j];
             btScalar directionSign = manifold->getBody0() == ghost ? btScalar(-1.0) : btScalar(1.0);
+            engine_container_p cont0 = (engine_container_p)manifold->getBody0()->getUserPointer();
+            engine_container_p cont1 = (engine_container_p)manifold->getBody1()->getUserPointer();
+            if((cont0->collision_type == COLLISION_TYPE_GHOST) || (cont1->collision_type == COLLISION_TYPE_GHOST))
+            {
+                continue;
+            }
             for(int k=0;k<manifold->getNumContacts();k++)
             {
                 const btManifoldPoint&pt = manifold->getContactPoint(k);
@@ -697,7 +713,6 @@ int Entity_CheckNextPenetration(struct entity_s *ent, btScalar move[3])
     if(ent->bt.ghostObjects != NULL)
     {
         btScalar t1, t2, reaction[3], *pos = ent->transform + 12;
-        character_response_p resp = &ent->character->resp;
 
         Entity_GhostUpdate(ent);
         vec3_add(pos, pos, move);
@@ -713,7 +728,7 @@ int Entity_CheckNextPenetration(struct entity_s *ent, btScalar move[3])
                 t1 = (reaction[0] * move[0] + reaction[1] * move[1]) / sqrtf(t2);
                 if(t1 < ent->character->critical_wall_component)
                 {
-                    resp->horizontal_collide |= 0x01;
+                    ent->character->resp.horizontal_collide |= 0x01;
                 }
             }
         }
@@ -746,7 +761,7 @@ void Entity_CheckCollisionCallbacks(struct entity_s *ent)
             if(type == OBJECT_ENTITY)
             {
                 entity_p activator = (entity_p)cont->object;
-                
+
                 if(activator->callback_flags & ENTITY_CALLBACK_COLLISION)
                 {
                     // Activator and entity IDs are swapped in case of collision callback.
@@ -828,15 +843,25 @@ btCollisionObject *Entity_GetRemoveCollisionBodyParts(struct entity_s *ent, uint
 
 void Entity_UpdateRoomPos(entity_p ent)
 {
-    btScalar pos[3], v[3];
+    btScalar pos[3];
     room_p new_room;
     room_sector_p new_sector;
 
-    vec3_add(v, ent->bf.bb_min, ent->bf.bb_max);
-    v[0] /= 2.0;
-    v[1] /= 2.0;
-    v[2] /= 2.0;
-    Mat4_vec3_mul_macro(pos, ent->transform, v);
+    if(ent->character)
+    {
+        Mat4_vec3_mul(pos, ent->transform, ent->bf.bone_tags->full_transform+12);
+        pos[0] = ent->transform[12+0];
+        pos[1] = ent->transform[12+1];
+    }
+    else
+    {
+        btScalar v[3];
+        vec3_add(v, ent->bf.bb_min, ent->bf.bb_max);
+        v[0] /= 2.0;
+        v[1] /= 2.0;
+        v[2] /= 2.0;
+        Mat4_vec3_mul_macro(pos, ent->transform, v);
+    }
     new_room = Room_FindPosCogerrence(pos, ent->self->room);
     if(new_room)
     {
@@ -972,7 +997,8 @@ void Entity_UpdateRigidBody(entity_p ent, int force)
         }
 
         Entity_UpdateRoomPos(ent);
-        if(ent->self->collide_flag != 0x00)
+
+        if(ent->self->collision_type != COLLISION_TYPE_STATIC)
         {
             btScalar tr[16];
             for(uint16_t i=0;i<ent->bf.bone_tag_count;i++)
@@ -989,7 +1015,7 @@ void Entity_UpdateRigidBody(entity_p ent, int force)
 }
 
 
-void Entity_UpdateRotation(entity_p entity)
+void Entity_UpdateTransform(entity_p entity)
 {
     btScalar R[4], Rt[4], temp[4];
     btScalar sin_t2, cos_t2, t;
@@ -1002,6 +1028,7 @@ void Entity_UpdateRotation(entity_p entity)
     {
         Entity_GhostUpdate(entity);
     }
+
     i = entity->angles[0] / 360.0;
     i = (entity->angles[0] < 0.0)?(i-1):(i);
     entity->angles[0] -= 360.0 * i;
@@ -1084,7 +1111,7 @@ void Entity_UpdateRotation(entity_p entity)
 
 void Entity_UpdateCurrentSpeed(entity_p entity, int zeroVz)
 {
-    btScalar t  = entity->current_speed * entity->character->speed_mult;
+    btScalar t  = entity->current_speed * entity->speed_mult;
     btScalar vz = (zeroVz)?(0.0):(entity->speed.m_floats[2]);
 
     if(entity->dir_flag & ENT_MOVE_FORWARD)
@@ -1478,28 +1505,6 @@ void Entity_DoAnimCommands(entity_p entity, struct ss_animation_s *ss_anim, int 
 }
 
 
-room_sector_s* Entity_GetLowestSector(room_sector_s* sector)
-{
-    room_sector_p lowest_sector = sector;
-
-    for(room_sector_p rs=sector;rs!=NULL;rs=rs->sector_below)
-    { lowest_sector = rs; }
-
-    return lowest_sector;
-}
-
-
-room_sector_s* Entity_GetHighestSector(room_sector_s* sector)
-{
-    room_sector_p highest_sector = sector;
-
-    for(room_sector_p rs=sector;rs!=NULL;rs=rs->sector_above)
-    { highest_sector = rs; }
-
-    return highest_sector;
-}
-
-
 void Entity_ProcessSector(struct entity_s *ent)
 {
     if(!ent->current_sector) return;
@@ -1510,8 +1515,8 @@ void Entity_ProcessSector(struct entity_s *ent)
     // (e.g. first trapdoor in The Great Wall, etc.)
     // Sector above primarily needed for paranoid cases of monkeyswing.
 
-    room_sector_p highest_sector = Entity_GetHighestSector(ent->current_sector);
-    room_sector_p lowest_sector  = Entity_GetLowestSector(ent->current_sector);
+    room_sector_p highest_sector = Sector_GetHighest(ent->current_sector);
+    room_sector_p lowest_sector  = Sector_GetLowest(ent->current_sector);
 
     if(ent->character)
     {
@@ -1760,7 +1765,7 @@ void Entity_DoAnimMove(entity_p entity, int16_t *anim, int16_t *frame)
             {
                 entity->dir_flag = ENT_MOVE_BACKWARD;
             }
-            Entity_UpdateRotation(entity);
+            Entity_UpdateTransform(entity);
             Entity_SetAnimation(entity, curr_af->next_anim->id, curr_af->next_frame);
             *anim = entity->bf.animations.current_animation;
             *frame = entity->bf.animations.current_frame;

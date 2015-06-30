@@ -44,13 +44,6 @@ struct ss_bone_frame_s;
 #define ENTITY_CALLBACK_STAND                       (0x00000008)
 #define ENTITY_CALLBACK_HIT                         (0x00000010)
 
-#define ENTITY_COLLISION_GHOST                    0     // no one collisions
-#define ENTITY_COLLISION_DYNAMIC                  1     // hallo full physics interaction
-#define ENTITY_COLLISION_KINEMATIC                2     // doors and other moveable statics
-#define ENTITY_COLLISION_STATIC                   3     // static object - never moved
-#define ENTITY_COLLISION_ACTOR                    4     // actor, enemies, NPC, animals
-#define ENTITY_COLLISION_VEHICLE                  5     // car, moto, bike
-
 #define ENTITY_SUBSTANCE_NONE                     0
 #define ENTITY_SUBSTANCE_WATER_SHALLOW            1
 #define ENTITY_SUBSTANCE_WATER_WADE               2
@@ -87,12 +80,12 @@ typedef struct bt_entity_data_s
     uint32_t                            no_fix_body_parts;
     btPairCachingGhostObject          **ghostObjects;           // like Bullet character controller for penetration resolving.
     btManifoldArray                    *manifoldArray;          // keep track of the contact manifolds
-    
+
     btCollisionShape                  **shapes;
     btRigidBody                       **bt_body;
     uint32_t                            bt_joint_count;         // Ragdoll joints
     btTypedConstraint                 **bt_joints;              // Ragdoll joints
-    
+
     struct entity_collision_node_s     *last_collisions;
 }bt_entity_data_t, *bt_entity_data_p;
 
@@ -109,18 +102,21 @@ typedef struct entity_s
 
     uint8_t                             dir_flag;           // (move direction)
     uint16_t                            move_type;          // on floor / free fall / swim ....
-    
+
     uint8_t                             was_rendered;       // render once per frame trigger
     uint8_t                             was_rendered_lines; // same for debug lines
 
     btScalar                            current_speed;      // current linear speed from animation info
+    btScalar                            speed_mult;
     btVector3                           speed;              // speed of the entity XYZ
-    
+
     btScalar                            inertia_linear;     // linear inertia
     btScalar                            inertia_angular[2]; // angular inertia - X and Y axes
-    
+
     struct ss_bone_frame_s              bf;                 // current boneframe with full frame information
     struct bt_entity_data_s             bt;
+
+    btScalar                            scaling[3];         // entity scaling
     btScalar                            angles[3];
     btScalar                            transform[16] __attribute__((packed, aligned(16))); // GL transformation matrix
 
@@ -132,7 +128,7 @@ typedef struct entity_s
     struct engine_container_s          *self;
 
     btScalar                            activation_offset[4];   // where we can activate object (dx, dy, dz, r)
-    
+
     struct character_s                 *character;
 }entity_t, *entity_p;
 
@@ -169,7 +165,7 @@ void Entity_GetNextFrame(struct ss_bone_frame_s *bf, btScalar time, struct state
 int  Entity_Frame(entity_p entity, btScalar time);  // process frame + trying to change state
 
 void Entity_RebuildBV(entity_p ent);
-void Entity_UpdateRotation(entity_p entity);
+void Entity_UpdateTransform(entity_p entity);
 void Entity_UpdateCurrentSpeed(entity_p entity, int zeroVz = 0);
 void Entity_AddOverrideAnim(struct entity_s *ent, int model_id);
 void Entity_CheckActivators(struct entity_s *ent);
@@ -187,8 +183,5 @@ void Entity_MoveVertical(struct entity_s *ent, btScalar dist);
 // Helper functions
 
 btScalar Entity_FindDistance(entity_p entity_1, entity_p entity_2);
-
-room_sector_s* Entity_GetLowestSector(room_sector_s* sector);
-room_sector_s* Entity_GetHighestSector(room_sector_s* sector);
 
 #endif

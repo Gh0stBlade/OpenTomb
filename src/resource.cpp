@@ -59,14 +59,10 @@ void Res_SetEntityModelProperties(struct entity_s *ent)
             lua_pushinteger(objects_flags_conf, ent->bf.animations.model->id);      // entity model id
             if (lua_CallAndLog(objects_flags_conf, 2, 4, 0))
             {
-                ent->self->collide_flag = 0xff & lua_tointeger(objects_flags_conf, -4); // get collision flag
-                ent->bf.animations.model->hide = lua_tointeger(objects_flags_conf, -3); // get info about model visibility
-                ent->type_flags |= lua_tointeger(objects_flags_conf, -2);               // get traverse information
-
-                if(!lua_isnil(objects_flags_conf, -1))
-                {
-                    Res_CreateEntityFunc(engine_lua, lua_tolstring(objects_flags_conf, -1, 0), ent->id);
-                }
+                ent->self->collision_type = lua_tointeger(objects_flags_conf, -4);      // get collision type flag
+                ent->self->collision_shape = lua_tointeger(objects_flags_conf, -3);     // get collision shape flag
+                ent->bf.animations.model->hide = lua_tointeger(objects_flags_conf, -2); // get info about model visibility
+                ent->type_flags |= lua_tointeger(objects_flags_conf, -1);               // get traverse information
             }
         }
         lua_settop(objects_flags_conf, top);
@@ -85,27 +81,51 @@ void Res_SetEntityModelProperties(struct entity_s *ent)
             {
                 if(!lua_isnil(level_script, -4))
                 {
-                    ent->self->collide_flag = 0xff & lua_tointeger(level_script, -4);   // get collision flag
+                    ent->self->collision_type = lua_tointeger(level_script, -4);        // get collision type flag
                 }
                 if(!lua_isnil(level_script, -3))
                 {
-                    ent->bf.animations.model->hide = lua_tointeger(level_script, -3);   // get info about model visibility
+                    ent->self->collision_shape = lua_tointeger(level_script, -3);       // get collision shape flag
                 }
                 if(!lua_isnil(level_script, -2))
                 {
-                    ent->type_flags &= ~(ENTITY_TYPE_TRAVERSE | ENTITY_TYPE_TRAVERSE_FLOOR);
-                    ent->type_flags |= lua_tointeger(level_script, -2);                 // get traverse information
+                    ent->bf.animations.model->hide = lua_tointeger(level_script, -2);   // get info about model visibility
                 }
                 if(!lua_isnil(level_script, -1))
                 {
-                    size_t string_length;
-                    Res_CreateEntityFunc(engine_lua, lua_tolstring(level_script, -1, &string_length), ent->id);
+                    ent->type_flags &= ~(ENTITY_TYPE_TRAVERSE | ENTITY_TYPE_TRAVERSE_FLOOR);
+                    ent->type_flags |= lua_tointeger(level_script, -1);                 // get traverse information
                 }
             }
         }
         lua_settop(level_script, top);
     }
 }
+
+
+void Res_SetEntityFunction(struct entity_s *ent)
+{
+    if((objects_flags_conf != NULL) && (ent->bf.animations.model != NULL))
+    {
+        int top = lua_gettop(objects_flags_conf);
+        assert(top >= 0);
+        lua_getglobal(objects_flags_conf, "getEntityFunction");
+        if(lua_isfunction(objects_flags_conf, -1))
+        {
+            lua_pushinteger(objects_flags_conf, engine_world.version);              // engine version
+            lua_pushinteger(objects_flags_conf, ent->bf.animations.model->id);      // entity model id
+            if (lua_CallAndLog(objects_flags_conf, 2, 1, 0))
+            {
+                if(!lua_isnil(objects_flags_conf, -1))
+                {
+                    Res_CreateEntityFunc(engine_lua, lua_tolstring(objects_flags_conf, -1, 0), ent->id);
+                }
+            }
+        }
+        lua_settop(objects_flags_conf, top);
+    }
+}
+
 
 bool Res_CreateEntityFunc(lua_State *lua, const char* func_name, int entity_id)
 {
@@ -139,6 +159,22 @@ bool Res_CreateEntityFunc(lua_State *lua, const char* func_name, int entity_id)
     return false;
 }
 
+void Res_GenEntityFunctions(struct RedBlackNode_s *x)
+{
+    entity_p entity = (entity_p)x->data;
+
+    Res_SetEntityFunction(entity);
+
+    if(x->left != NULL)
+    {
+        Res_GenEntityFunctions(x->left);
+    }
+    if(x->right != NULL)
+    {
+        Res_GenEntityFunctions(x->right);
+    }
+}
+
 void Res_SetStaticMeshProperties(struct static_mesh_s *r_static)
 {
     if(level_script != NULL)
@@ -148,11 +184,15 @@ void Res_SetStaticMeshProperties(struct static_mesh_s *r_static)
         if(lua_isfunction(level_script, -1))
         {
             lua_pushinteger(level_script, r_static->object_id);
-            if(lua_CallAndLog(level_script, 1, 2, 0))
+            if(lua_CallAndLog(level_script, 1, 3, 0))
             {
+                if(!lua_isnil(level_script, -3))
+                {
+                    r_static->self->collision_type = lua_tointeger(level_script, -3);
+                }
                 if(!lua_isnil(level_script, -2))
                 {
-                    r_static->self->collide_flag = lua_tointeger(level_script, -2);
+                    r_static->self->collision_shape = lua_tointeger(level_script, -2);
                 }
                 if(!lua_isnil(level_script, -1))
                 {
@@ -252,7 +292,7 @@ int Res_Sector_IsWall(room_sector_p ws, room_sector_p ns)
 
     if((ns->portal_to_room < 0) && (ns->floor_penetration_config != TR_PENETRATION_CONFIG_WALL) && (ws->portal_to_room >= 0))
     {
-        ws = TR_Sector_CheckPortalPointer(ws);
+        ws = Sector_CheckPortalPointer(ws);
         if((ws->floor_penetration_config == TR_PENETRATION_CONFIG_WALL) || (0 == Sectors_Is2SidePortals(ns, ws)))
         {
             return 1;
@@ -326,8 +366,8 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                         /************************** SECTION WITH DROPS CALCULATIONS **********************/
                         if(((current_heightmap->portal_to_room < 0) && ((next_heightmap->portal_to_room < 0))) || Sectors_Is2SidePortals(current_heightmap, next_heightmap))
                         {
-                            current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
-                            next_heightmap    = TR_Sector_CheckPortalPointer(next_heightmap);
+                            current_heightmap = Sector_CheckPortalPointer(current_heightmap);
+                            next_heightmap    = Sector_CheckPortalPointer(next_heightmap);
                             if((current_heightmap->portal_to_room < 0) && (next_heightmap->portal_to_room < 0) && (current_heightmap->floor_penetration_config != TR_PENETRATION_CONFIG_WALL) && (next_heightmap->floor_penetration_config != TR_PENETRATION_CONFIG_WALL))
                             {
                                 if((current_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID) || (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
@@ -360,7 +400,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                     char valid = 0;
                     if((next_heightmap->portal_to_room >= 0) && (current_heightmap->sector_above != NULL) && (current_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        next_heightmap = TR_Sector_CheckPortalPointer(next_heightmap);
+                        next_heightmap = Sector_CheckPortalPointer(next_heightmap);
                         if(next_heightmap->owner_room->id == current_heightmap->sector_above->owner_room->id)
                         {
                             valid = 1;
@@ -377,7 +417,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
 
                     if((current_heightmap->portal_to_room >= 0) && (next_heightmap->sector_above != NULL) && (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
+                        current_heightmap = Sector_CheckPortalPointer(current_heightmap);
                         if(current_heightmap->owner_room->id == next_heightmap->sector_above->owner_room->id)
                         {
                             valid = 1;
@@ -409,7 +449,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                     char valid = 0;
                     if((next_heightmap->portal_to_room >= 0) && (current_heightmap->sector_below != NULL) && (current_heightmap->ceiling_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        next_heightmap = TR_Sector_CheckPortalPointer(next_heightmap);
+                        next_heightmap = Sector_CheckPortalPointer(next_heightmap);
                         if(next_heightmap->owner_room->id == current_heightmap->sector_below->owner_room->id)
                         {
                             valid = 1;
@@ -426,7 +466,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
 
                     if((current_heightmap->portal_to_room >= 0) && (next_heightmap->sector_below != NULL) && (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
+                        current_heightmap = Sector_CheckPortalPointer(current_heightmap);
                         if(current_heightmap->owner_room->id == next_heightmap->sector_below->owner_room->id)
                         {
                             valid = 1;
@@ -512,8 +552,8 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                         /************************** BIG SECTION WITH DROPS CALCULATIONS **********************/
                         if(((current_heightmap->portal_to_room < 0) && ((next_heightmap->portal_to_room < 0))) || Sectors_Is2SidePortals(current_heightmap, next_heightmap))
                         {
-                            current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
-                            next_heightmap    = TR_Sector_CheckPortalPointer(next_heightmap);
+                            current_heightmap = Sector_CheckPortalPointer(current_heightmap);
+                            next_heightmap    = Sector_CheckPortalPointer(next_heightmap);
                             if((current_heightmap->portal_to_room < 0) && (next_heightmap->portal_to_room < 0) && (current_heightmap->floor_penetration_config != TR_PENETRATION_CONFIG_WALL) && (next_heightmap->floor_penetration_config != TR_PENETRATION_CONFIG_WALL))
                             {
                                 if((current_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID) || (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
@@ -546,7 +586,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                     char valid = 0;
                     if((next_heightmap->portal_to_room >= 0) && (current_heightmap->sector_above != NULL) && (current_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        next_heightmap = TR_Sector_CheckPortalPointer(next_heightmap);
+                        next_heightmap = Sector_CheckPortalPointer(next_heightmap);
                         if(next_heightmap->owner_room->id == current_heightmap->sector_above->owner_room->id)
                         {
                             valid = 1;
@@ -563,7 +603,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
 
                     if((current_heightmap->portal_to_room >= 0) && (next_heightmap->sector_above != NULL) && (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
+                        current_heightmap = Sector_CheckPortalPointer(current_heightmap);
                         if(current_heightmap->owner_room->id == next_heightmap->sector_above->owner_room->id)
                         {
                             valid = 1;
@@ -595,7 +635,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
                     char valid = 0;
                     if((next_heightmap->portal_to_room >= 0) && (current_heightmap->sector_below != NULL) && (current_heightmap->ceiling_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        next_heightmap = TR_Sector_CheckPortalPointer(next_heightmap);
+                        next_heightmap = Sector_CheckPortalPointer(next_heightmap);
                         if(next_heightmap->owner_room->id == current_heightmap->sector_below->owner_room->id)
                         {
                             valid = 1;
@@ -612,7 +652,7 @@ void Res_Sector_GenTweens(struct room_s *room, struct sector_tween_s *room_tween
 
                     if((current_heightmap->portal_to_room >= 0) && (next_heightmap->sector_below != NULL) && (next_heightmap->floor_penetration_config == TR_PENETRATION_CONFIG_SOLID))
                     {
-                        current_heightmap = TR_Sector_CheckPortalPointer(current_heightmap);
+                        current_heightmap = Sector_CheckPortalPointer(current_heightmap);
                         if(current_heightmap->owner_room->id == next_heightmap->sector_below->owner_room->id)
                         {
                             valid = 1;
@@ -1766,20 +1806,24 @@ void Res_ScriptsOpen(int engine_version)
     if(level_script != NULL)
     {
         luaL_openlibs(level_script);
+        lua_register(level_script, "print", lua_print);
         lua_register(level_script, "setSectorFloorConfig", lua_SetSectorFloorConfig);
         lua_register(level_script, "setSectorCeilingConfig", lua_SetSectorCeilingConfig);
         lua_register(level_script, "setSectorPortal", lua_SetSectorPortal);
         lua_register(level_script, "setSectorFlags", lua_SetSectorFlags);
 
         luaL_dofile(level_script, "scripts/staticmesh/staticmesh_script.lua");
-        int lua_err = luaL_dofile(level_script, temp_script_name);
 
-        if(lua_err)
+        if(Engine_FileFound(temp_script_name, false))
         {
-            Sys_DebugLog("lua_out.txt", "%s", lua_tostring(level_script, -1));
-            lua_pop(level_script, 1);
-            lua_close(level_script);
-            level_script = NULL;
+            int lua_err = luaL_dofile(level_script, temp_script_name);
+            if(lua_err)
+            {
+                Sys_DebugLog("lua_out.txt", "%s", lua_tostring(level_script, -1));
+                lua_pop(level_script, 1);
+                lua_close(level_script);
+                level_script = NULL;
+            }
         }
     }
 
@@ -1870,7 +1914,7 @@ void TR_GenWorld(struct world_s *world, class VT_Level *tr)
 
     TR_GenTextures(world, tr);          // Generate OGL textures
     Gui_DrawLoadScreen(300);
-    
+
     TR_GenAnimCommands(world, tr);      // Copy anim commands
     Gui_DrawLoadScreen(310);
 
@@ -1882,13 +1926,13 @@ void TR_GenWorld(struct world_s *world, class VT_Level *tr)
 
     TR_GenSprites(world, tr);           // Generate all sprites
     Gui_DrawLoadScreen(420);
-    
+
     TR_GenBoxes(world, tr);             // Generate boxes.
     Gui_DrawLoadScreen(440);
-    
+
     TR_GenCameras(world, tr);           // Generate cameras & sinks.
     Gui_DrawLoadScreen(460);
-    
+
     TR_GenRooms(world, tr);             // Build all rooms
     Gui_DrawLoadScreen(500);
 
@@ -1896,13 +1940,13 @@ void TR_GenWorld(struct world_s *world, class VT_Level *tr)
     Gui_DrawLoadScreen(520);
 
     // Build all skeletal models. Must be generated before TR_Sector_Calculate() function.
-    
+
     TR_GenSkeletalModels(world, tr);
     Gui_DrawLoadScreen(600);
 
     TR_GenEntities(world, tr);          // Build all moveables (entities)
     Gui_DrawLoadScreen(650);
-    
+
     Res_GenBaseItems(world);             // Generate inventory item entries.
     Gui_DrawLoadScreen(680);
 
@@ -1927,11 +1971,16 @@ void TR_GenWorld(struct world_s *world, class VT_Level *tr)
     world->sky_box = Res_GetSkybox(world, world->version);
     Gui_DrawLoadScreen(860);
 
+    // Generate entity functions.
+
+    Res_GenEntityFunctions(world->entity_tree->root);
+    Gui_DrawLoadScreen(910);
+
     // Load entity collision flags and ID overrides from script.
 
     Res_ScriptsClose();
-    Gui_DrawLoadScreen(870);
-    
+    Gui_DrawLoadScreen(940);
+
     // Generate VBOs for meshes.
 
     Res_GenVBOs(world);
@@ -1941,7 +1990,7 @@ void TR_GenWorld(struct world_s *world, class VT_Level *tr)
 
     Res_AutoexecOpen(world->version);
     Gui_DrawLoadScreen(960);
-    
+
     // Fix initial room states
 
     Res_FixRooms(world);
@@ -2082,11 +2131,11 @@ void TR_GenRoom(size_t room_index, struct room_s *room, struct world_s *world, c
            ((r_static->cbb_min[0] == r_static->cbb_min[1]) && (r_static->cbb_min[1] == r_static->cbb_min[2]) &&
             (r_static->cbb_max[0] == r_static->cbb_max[1]) && (r_static->cbb_max[1] == r_static->cbb_max[2])) )
         {
-            r_static->self->collide_flag = COLLISION_NONE;
+            r_static->self->collision_type = COLLISION_NONE;
         }
         else
         {
-            r_static->self->collide_flag = COLLISION_BOX;
+            r_static->self->collision_type = COLLISION_TYPE_STATIC;
         }
 
         // Set additional static mesh properties from level script override.
@@ -2094,19 +2143,23 @@ void TR_GenRoom(size_t room_index, struct room_s *room, struct world_s *world, c
         Res_SetStaticMeshProperties(r_static);
 
         // Set static mesh collision.
-        if(r_static->self->collide_flag != COLLISION_NONE)
+        if(r_static->self->collision_type != COLLISION_NONE)
         {
-            switch(r_static->self->collide_flag)
+            switch(r_static->self->collision_shape)
             {
-                case COLLISION_BOX:
-                    cshape = BT_CSfromBBox(r_static->cbb_min, r_static->cbb_max, true, true, false);
+                case COLLISION_SHAPE_BOX:
+                    cshape = BT_CSfromBBox(r_static->cbb_min, r_static->cbb_max, true, true);
                     break;
 
-                case COLLISION_BASE_BOX:
-                    cshape = BT_CSfromBBox(r_static->mesh->bb_min, r_static->mesh->bb_max, true, true, false);
+                case COLLISION_SHAPE_BOX_BASE:
+                    cshape = BT_CSfromBBox(r_static->mesh->bb_min, r_static->mesh->bb_max, true, true);
                     break;
 
-                case COLLISION_TRIMESH:
+                case COLLISION_SHAPE_TRIMESH:
+                    cshape = BT_CSfromMesh(r_static->mesh, true, true, true);
+                    break;
+
+                case COLLISION_SHAPE_TRIMESH_CONVEX:
                     cshape = BT_CSfromMesh(r_static->mesh, true, true, false);
                     break;
 
@@ -2472,7 +2525,8 @@ void Res_GenRoomCollision(struct world_s *world)
             r->bt_body->setUserPointer(r->self);
             r->bt_body->setRestitution(1.0);
             r->bt_body->setFriction(1.0);
-            r->self->collide_flag = COLLISION_TRIMESH;                          // meshtree
+            r->self->collision_type = COLLISION_TYPE_STATIC;                    // meshtree
+            r->self->collision_shape = COLLISION_SHAPE_TRIMESH;
         }
 
         delete[] room_tween;
@@ -2526,7 +2580,7 @@ void TR_GenBoxes(struct world_s *world, class VT_Level *tr)
 {
     world->room_boxes = NULL;
     world->room_box_count = tr->boxes_count;
-    
+
     if(world->room_box_count)
     {
         world->room_boxes = (room_box_p)malloc(world->room_box_count * sizeof(room_box_t));
@@ -2546,7 +2600,7 @@ void TR_GenCameras(struct world_s *world, class VT_Level *tr)
 {
     world->cameras_sinks = NULL;
     world->cameras_sinks_count = tr->cameras_count;
-    
+
     if(world->cameras_sinks_count)
     {
         world->cameras_sinks = (stat_camera_sink_p)malloc(world->cameras_sinks_count * sizeof(stat_camera_sink_t));
@@ -3395,7 +3449,7 @@ void Res_GenVBOs(struct world_s *world)
 void Res_GenBaseItems(struct world_s* world)
 {
     lua_CallVoidFunc(engine_lua, "genBaseItems");
-    
+
     if((world->items_tree != NULL) && (world->items_tree->root != NULL))
     {
         Res_EntityToItem(world->items_tree->root);
@@ -3414,7 +3468,7 @@ void Res_FixRooms(struct world_s *world)
 
         // Isolated rooms may be used for rolling ball trick (for ex., LEVEL4.PHD).
         // Hence, this part is commented.
-        
+
         /*
         if((r->portal_count == 0) && (world->room_count > 1))
         {
@@ -4032,7 +4086,7 @@ void TR_GenEntities(struct world_s *world, class VT_Level *tr)
         entity->angles[0] = tr_item->rotation;
         entity->angles[1] = 0.0;
         entity->angles[2] = 0.0;
-        Entity_UpdateRotation(entity);
+        Entity_UpdateTransform(entity);
         if((tr_item->room >= 0) && ((uint32_t)tr_item->room < world->room_count))
         {
             entity->self->room = world->rooms + tr_item->room;
@@ -4046,7 +4100,8 @@ void TR_GenEntities(struct world_s *world, class VT_Level *tr)
         entity->OCB             = tr_item->ocb;
         entity->timer           = 0.0;
 
-        entity->self->collide_flag = 0x00;
+        entity->self->collision_type = COLLISION_TYPE_KINEMATIC;
+        entity->self->collision_shape = COLLISION_SHAPE_TRIMESH;
         entity->move_type          = 0x0000;
         entity->inertia_linear     = 0.0;
         entity->inertia_angular[0] = 0.0;
@@ -4127,7 +4182,8 @@ void TR_GenEntities(struct world_s *world, class VT_Level *tr)
 
             entity->move_type = MOVE_ON_FLOOR;
             world->Character = entity;
-            entity->self->collide_flag = ENTITY_COLLISION_ACTOR;
+            entity->self->collision_type = COLLISION_TYPE_ACTOR;
+            entity->self->collision_shape = COLLISION_SHAPE_TRIMESH_CONVEX;
             entity->bf.animations.model->hide = 0;
             entity->type_flags |= ENTITY_TYPE_TRIGGER_ACTIVATOR;
             LM = (skeletal_model_p)entity->bf.animations.model;
@@ -4198,14 +4254,13 @@ void TR_GenEntities(struct world_s *world, class VT_Level *tr)
         }
 
         Entity_SetAnimation(entity, 0, 0);                                      // Set zero animation and zero frame
-        BT_GenEntityRigidBody(entity);
-
         Entity_RebuildBV(entity);
         Room_AddEntity(entity->self->room, entity);
         World_AddEntity(world, entity);
-
         Res_SetEntityModelProperties(entity);
-        if(entity->self->collide_flag == 0x00)
+        BT_GenEntityRigidBody(entity);
+
+        if(!(entity->state_flags & ENTITY_STATE_ENABLED) || !(entity->self->collision_type & 0x0001))
         {
             Entity_DisableCollision(entity);
         }
@@ -4400,7 +4455,7 @@ void TR_GenSamples(struct world_s *world, class VT_Level *tr)
                 break;
 
             case TR_II:
-            case TR_II_DEMO:                
+            case TR_II_DEMO:
                 switch(tr->sound_details[i].num_samples_and_flags_1 & 0x03)
                 {
                     case 0x02:

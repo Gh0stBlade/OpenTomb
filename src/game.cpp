@@ -117,23 +117,6 @@ int lua_debuginfo(lua_State * lua)
     return 0;
 }
 
-int lua_print(lua_State * lua)
-{
-     int top = lua_gettop(lua);
-
-     if(top == 0)
-     {
-        Con_AddLine("nil");
-     }
-
-     for(int i=1;i<=top;i++)
-     {
-         Con_AddLine(lua_tostring(lua, i), FONTSTYLE_CONSOLE_EVENT);
-     }
-
-     return 0;
-}
-
 int lua_timescale(lua_State * lua)
 {
     if(lua_gettop(lua) == 0)
@@ -169,7 +152,6 @@ void Game_RegisterLuaFunctions(lua_State *lua)
 {
     if(lua != NULL)
     {
-        lua_register(lua, "print", lua_print);
         lua_register(lua, "debuginfo", lua_debuginfo);
         lua_register(lua, "mlook", lua_mlook);
         lua_register(lua, "freelook", lua_freelook);
@@ -269,7 +251,7 @@ void Save_Entity(FILE **f, entity_p ent)
     fprintf(*f, "\nsetEntitySpeed(%d, %.2f, %.2f, %.2f);", ent->id, ent->speed.m_floats[0], ent->speed.m_floats[1], ent->speed.m_floats[2]);
     fprintf(*f, "\nsetEntityAnim(%d, %d, %d);", ent->id, ent->bf.animations.current_animation, ent->bf.animations.current_frame);
     fprintf(*f, "\nsetEntityState(%d, %d, %d);", ent->id, ent->bf.animations.next_state, ent->bf.animations.last_state);
-    fprintf(*f, "\nsetEntityCollision(%d, %d);", ent->id, ent->self->collide_flag);
+    fprintf(*f, "\nsetEntityCollisionFlags(%d, %d, %d);", ent->id, ent->self->collision_type, ent->self->collision_shape);
 
     if(ent->state_flags & ENTITY_STATE_ENABLED)
     {
@@ -463,7 +445,7 @@ void Game_ApplyControls(struct entity_s *ent)
         pos.m_floats[1] = renderer.cam->pos[1] + renderer.cam->view_dir[1] * control_states.cam_distance;
         pos.m_floats[2] = renderer.cam->pos[2] + renderer.cam->view_dir[2] * control_states.cam_distance - 512.0;
         vec3_copy(ent->transform+12, pos.m_floats);
-        Entity_UpdateRotation(ent);
+        Entity_UpdateTransform(ent);
     }
     else
     {
