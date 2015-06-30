@@ -530,8 +530,6 @@ class TR_Level {
 
     void SetSFXPath(const char* filename);
     void ReadLevel(const char* filename);
-    void GetPlatform(SDL_RWops * const src);//Detection to see if file belongs to specific platform
-    void GetVersion(SDL_RWops * const src);
 
     protected:
     uint32_t num_textiles;          ///< \brief number of 256x256 textiles.
@@ -625,6 +623,11 @@ class TR_Level {
     void read_tr5_room(SDL_RWops * const orgsrc, tr5_room_t & room);
     void read_tr5_moveable(SDL_RWops * const src, tr_moveable_t & moveable);
     void read_tr5_level(SDL_RWops * const src);
+
+    void read_tr5_dc_room_vertex(SDL_RWops * const src, tr5_room_vertex_t & vert);
+    void read_tr5_dc_room(SDL_RWops * const orgsrc, tr5_room_t & room);
+    void read_tr5_dc_level(SDL_RWops * const src);
+
 };
 
 #endif // _L_MAIN_H_

@@ -4671,7 +4671,19 @@ bool Engine_LoadLevel(const char *name)
     char buf[LEVEL_NAME_MAX_LEN] = {0x00};
     Engine_GetLevelName(buf, name);
 
-    Con_Notify(SYSNOTE_LOADED_PC_LEVEL);
+    switch(tr_level->platform_id)///@FIXME This should be entirely deleted imo, no need to print it
+    {
+    case PLATFORM_PC:
+        Con_Notify(SYSNOTE_LOADED_PC_LEVEL);
+        break;
+    case PLATFORM_PSX:
+        Con_Notify(SYSNOTE_LOADED_PSX_LEVEL);
+        break;
+    case PLATFORM_DC:
+        Con_Notify(SYSNOTE_LOADED_DC_LEVEL);
+        break;
+    }
+
     Con_Notify(SYSNOTE_ENGINE_VERSION, tr_level->game_version, buf);
     Con_Notify(SYSNOTE_NUM_ROOMS, engine_world.room_count);
 

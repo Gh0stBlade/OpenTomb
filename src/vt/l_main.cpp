@@ -248,7 +248,7 @@ void TR_Level::GetPlatformAndVersion(const char* filename, SDL_RWops * const src
     ///This is for platforms other than PC that have the version NOT stored or stored elsewhere!
     if(this->game_version == -1)
     {
-        switch(this->platform_id)
+        switch(assets_settings.platform_id)
         {
         case PLATFORM_DC:
             SDL_RWseek(src, 0x80C, SEEK_SET);
@@ -311,6 +311,18 @@ void TR_Level::ReadLevel(const char* filename)
                 break;
             case TR_V:
                 read_tr5_level(src);
+                break;
+            default:
+                Sys_extError("Error: Invalid GAME_VERSION!");
+                break;
+        }
+    }
+    else if(assets_settings.platform_id == PLATFORM_DC)///@INFO TR4 DC Levels are the same as PC
+    {
+        switch (this->game_version)
+        {
+            case TR_V:
+                read_tr5_dc_level(src);
                 break;
             default:
                 Sys_extError("Error: Invalid GAME_VERSION!");
