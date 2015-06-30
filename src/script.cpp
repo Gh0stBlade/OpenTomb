@@ -290,7 +290,7 @@ bool lua_GetOverridedSample(lua_State *lua, int sound_id, int *first_sample_numb
             {
                 *first_sample_number = (int)lua_tointeger(lua, -2);
                 *samples_count       = (int)lua_tointeger(lua, -1);
-                
+
                 if((*first_sample_number != -1) && (*samples_count != -1))
                     result = true;
             }
@@ -305,7 +305,7 @@ bool lua_GetOverridedSample(lua_State *lua, int sound_id, int *first_sample_numb
 bool lua_GetSoundtrack(lua_State *lua, int track_index, char *file_path, int *load_method, int *stream_type)
 {
     bool result = false;
-    
+
     if(lua)
     {
         int top = lua_gettop(lua);
@@ -424,7 +424,7 @@ bool lua_GetLoadingScreen(lua_State *lua, int level_index, char *pic_path)
 
                 // Lua returns constant string pointer, which we can't assign to
                 // provided argument; so we need to straightly copy it.
-                
+
                 strncpy(pic_path, real_path, MAX_ENGINE_PATH);
 
                 result = true;
@@ -467,52 +467,52 @@ int lua_DoTasks(lua_State *lua, btScalar time)
 {
     lua_pushnumber(lua, time);
     lua_setglobal(lua, "frame_time");
-    
+
     lua_CallVoidFunc(lua, "doTasks");
     lua_CallVoidFunc(lua, "clearKeys");
-    
+
     return 0;
 }
 
 void lua_AddKey(lua_State *lua, int keycode, int state)
 {
     int top = lua_gettop(lua);
-    
+
     lua_getglobal(lua, "addKey");
-    
+
     if(!lua_isfunction(lua, -1))
     {
         lua_settop(lua, top);
         return;
     }
-    
+
     lua_pushinteger(lua, keycode);
     lua_pushinteger(lua, state);
     lua_CallAndLog(lua, 2, 0, 0);
-    
+
     lua_settop(lua, top);
 }
 
 bool lua_CallVoidFunc(lua_State *lua, const char* func_name, bool destroy_after_call)
 {
     int top = lua_gettop(lua);
-    
+
     lua_getglobal(lua, func_name);
-    
+
     if(!lua_isfunction(lua, -1))
     {
         lua_settop(lua, top);
         return false;
     }
-    
+
     lua_CallAndLog(lua, 0, 0, 0);
-    
+
     if(destroy_after_call)
     {
         lua_pushstring(engine_lua, "nil");
         lua_setglobal(lua, func_name);
     }
-        
+
     lua_settop(lua, top);
     return true;
 }
@@ -530,16 +530,16 @@ int lua_ExecEntity(lua_State *lua, int id_callback, int id_object, int id_activa
     }
 
     int argn = 0;
-    
+
     lua_pushinteger(lua, id_callback);  argn++;
     lua_pushinteger(lua, id_object);    argn++;
-    
+
     if(id_activator >= 0)
     {
         lua_pushinteger(lua, id_activator);
         argn++;
     }
-    
+
     lua_CallAndLog(lua, argn, 0, 0);
 
     lua_settop(lua, top);
@@ -732,6 +732,25 @@ int lua_ParseConsole(lua_State *lua, struct console_info_s *cn)
 
         lua_settop(lua, top);
         return 1;
+    }
+
+    return -1;
+}
+
+int lua_ParseAssets(lua_State *lua, struct assets_settings_s *sc)
+{
+    if(lua)
+    {
+        int top = lua_gettop(lua);
+
+        lua_getglobal(lua, "assets");
+        sc->platform_id = (int16_t)lua_GetScalarField(lua, "platform_id");
+        lua_settop(lua, top);
+        return 1;
+    }
+    else
+    {
+        sc->platform_id = PLATFORM_PC; ///@PARANOID defaulted.
     }
 
     return -1;

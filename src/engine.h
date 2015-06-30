@@ -13,11 +13,6 @@
 #define LEVEL_NAME_MAX_LEN                      (64)
 #define MAX_ENGINE_PATH                         (1024)
 
-#define LEVEL_FORMAT_PC         0
-#define LEVEL_FORMAT_PSX        1
-#define LEVEL_FORMAT_DC         2
-#define LEVEL_FORMAT_OPENTOMB   3   // Maybe some day...
-
 #define OBJECT_STATIC_MESH                      (0x0001)
 #define OBJECT_ROOM_BASE                        (0x0002)
 #define OBJECT_ENTITY                           (0x0003)
@@ -56,6 +51,22 @@ class btDiscreteDynamicsWorld;
 
 struct camera_s;
 struct lua_State;
+
+//Responsible for information regarding what platform the assets we're going to load belong to
+typedef struct assets_settings_s
+{
+    uint32_t                     platform_id;
+}assets_settings_t, *assets_settings_p;
+
+enum platform_info
+{
+    PLATFORM_PC =  0, // PC
+    PLATFORM_SAT = 1, // Sega Saturn
+    PLATFORM_PSX = 2, // PlayStation
+    PLATFORM_NGE = 3, // Nokia N-Gage
+    PLATFORM_PPC = 4, // Pocket PC
+    PLATFORM_DC =  5  // Dreamcast
+};
 
 typedef struct engine_container_s
 {
@@ -127,8 +138,8 @@ typedef struct engine_control_state_s
 
 extern struct engine_control_state_s            control_states;
 extern struct control_settings_s                control_mapper;
-
 extern struct audio_settings_s                  audio_settings;
+extern struct assets_settings_s                assets_settings;
 
 extern btScalar                                 engine_frame_time;
 extern struct camera_s                          engine_camera;

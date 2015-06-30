@@ -63,6 +63,7 @@ extern ALCcontext             *al_context;
 struct engine_control_state_s           control_states = {0};
 struct control_settings_s               control_mapper = {0};
 struct audio_settings_s                 audio_settings = {0};
+struct assets_settings_s                assets_settings = {0};
 btScalar                                engine_frame_time = 0.0;
 
 struct camera_s                         engine_camera;
@@ -4586,7 +4587,7 @@ int Engine_GetLevelFormat(const char *name)
 {
     // PLACEHOLDER: Currently, only PC levels are supported.
 
-    return LEVEL_FORMAT_PC;
+    return PLATFORM_PC;
 }
 
 
@@ -4844,23 +4845,34 @@ int Engine_LoadMap(const char *name)
 
 
     // Here we can place different platform-specific level loading routines.
-
-    switch(Engine_GetLevelFormat(name))
+    switch(assets_settings.platform_id)
     {
-        case LEVEL_FORMAT_PC:
+        case PLATFORM_PC:
             if(Engine_LoadPCLevel(name) == false) return 0;
             break;
-
-        case LEVEL_FORMAT_PSX:
+        case PLATFORM_SAT:
+            Con_Printf("Warning: SAT asset loading is NOT implemented!");
+            return 0;
             break;
-
-        case LEVEL_FORMAT_DC:
+        case PLATFORM_PSX:
+            Con_Printf("Warning: PSX asset loading is NOT implemented!");
+            return 0;
             break;
-
-        case LEVEL_FORMAT_OPENTOMB:
+        case PLATFORM_NGE:
+            Con_Printf("Warning: NGE asset loading is NOT implemented!");
+            return 0;
             break;
-
+        case PLATFORM_PPC:
+            Con_Printf("Warning: PPC asset loading is NOT implemented!");
+            return 0;
+            break;
+        case PLATFORM_DC:
+            Con_Printf("Warning: DC asset loading is NOT implemented!");
+            return 0;
+            break;
         default:
+            Con_Printf("Warning: asset loading for unknown platform %d is NOT implemented!", assets_settings.platform_id);
+            return 0;
             break;
     }
 
@@ -5137,6 +5149,7 @@ void Engine_InitConfig(const char *filename)
             lua_ParseRender(lua, &renderer.settings);
             lua_ParseAudio(lua, &audio_settings);
             lua_ParseConsole(lua, &con_base);
+            lua_ParseAssets(lua, &assets_settings);
             lua_ParseControls(lua, &control_mapper);
             lua_close(lua);
         }
