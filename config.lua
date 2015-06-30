@@ -68,6 +68,13 @@ console =
     show = 0;
 }
 
+dofile("scripts/config/assets_constants.lua");
+
+assets = 
+{
+	platform_id = PLATFORM_PC;
+}
+
 -- Keys binding
 -- Please note that on XInput game controllers (XBOX360 and such), triggers are NOT
 -- coded as joystick buttons. Instead, they have unique names: JOY_TRIGGERLEFT and
