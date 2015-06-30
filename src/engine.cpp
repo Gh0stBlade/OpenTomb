@@ -4583,141 +4583,6 @@ bool Engine_FileFound(const char *name, bool Write)
     }
 }
 
-int Engine_GetLevelFormat(const char *name)
-{
-    // PLACEHOLDER: Currently, only PC levels are supported.
-
-    return PLATFORM_PC;
-}
-
-
-int Engine_GetPCLevelVersion(const char *name)
-{
-    int ret = TR_UNKNOWN;
-    int len = strlen(name);
-    FILE *ff;
-
-    if(len < 5)
-    {
-        return ret;                                                             // Wrong (too short) filename
-    }
-
-    ff = fopen(name, "rb");
-    if(ff)
-    {
-        char ext[5];
-        uint8_t check[4];
-
-        ext[0] = name[len-4];                                                   // .
-        ext[1] = toupper(name[len-3]);                                          // P
-        ext[2] = toupper(name[len-2]);                                          // H
-        ext[3] = toupper(name[len-1]);                                          // D
-        ext[4] = 0;
-        fread(check, 4, 1, ff);
-
-        if(!strncmp(ext, ".PHD", 4))                                            //
-        {
-            if(check[0] == 0x20 &&
-               check[1] == 0x00 &&
-               check[2] == 0x00 &&
-               check[3] == 0x00)
-            {
-                ret = TR_I;                                                     // TR_I ? OR TR_I_DEMO
-            }
-            else
-            {
-                ret = TR_UNKNOWN;
-            }
-        }
-        else if(!strncmp(ext, ".TUB", 4))
-        {
-            if(check[0] == 0x20 &&
-               check[1] == 0x00 &&
-               check[2] == 0x00 &&
-               check[3] == 0x00)
-            {
-                ret = TR_I_UB;                                                  // TR_I_UB
-            }
-            else
-            {
-                ret = TR_UNKNOWN;
-            }
-        }
-        else if(!strncmp(ext, ".TR2", 4))
-        {
-            if(check[0] == 0x2D &&
-               check[1] == 0x00 &&
-               check[2] == 0x00 &&
-               check[3] == 0x00)
-            {
-                ret = TR_II;                                                    // TR_II
-            }
-            else if((check[0] == 0x38 || check[0] == 0x34) &&
-                    (check[1] == 0x00) &&
-                    (check[2] == 0x18 || check[2] == 0x08) &&
-                    (check[3] == 0xFF))
-            {
-                ret = TR_III;                                                   // TR_III
-            }
-            else
-            {
-                ret = TR_UNKNOWN;
-            }
-        }
-        else if(!strncmp(ext, ".TR4", 4))
-        {
-            if(check[0] == 0x54 &&                                              // T
-               check[1] == 0x52 &&                                              // R
-               check[2] == 0x34 &&                                              // 4
-               check[3] == 0x00)
-            {
-                ret = TR_IV;                                                    // OR TR TR_IV_DEMO
-            }
-            else if(check[0] == 0x54 &&                                         // T
-                    check[1] == 0x52 &&                                         // R
-                    check[2] == 0x34 &&                                         // 4
-                    check[3] == 0x63)                                           //
-            {
-                ret = TR_IV;                                                    // TRLE
-            }
-            else if(check[0] == 0xF0 &&                                         // T
-                    check[1] == 0xFF &&                                         // R
-                    check[2] == 0xFF &&                                         // 4
-                    check[3] == 0xFF)
-            {
-                ret = TR_IV;                                                    // BOGUS (OpenRaider =))
-            }
-            else
-            {
-                ret = TR_UNKNOWN;
-            }
-        }
-        else if(!strncmp(ext, ".TRC", 4))
-        {
-            if(check[0] == 0x54 &&                                              // T
-               check[1] == 0x52 &&                                              // R
-               check[2] == 0x34 &&                                              // 4
-               check[3] == 0x00)
-            {
-                ret = TR_V;                                                     // TR_V
-            }
-            else
-            {
-                ret = TR_UNKNOWN;
-            }
-        }
-        else                                                                    // unknown ext.
-        {
-            ret = TR_UNKNOWN;
-        }
-
-        fclose(ff);
-    }
-
-    return ret;
-}
-
-
 void Engine_GetLevelName(char *name, const char *path)
 {
     int i, len, start, ext;
@@ -4791,16 +4656,15 @@ void Engine_GetLevelScriptName(int game_version, char *name, const char *postfix
     strcat(name, ".lua");
 }
 
-bool Engine_LoadPCLevel(const char *name)
+bool Engine_LoadLevel(const char *name)
 {
+    bool bDumpTextures = false;
+
     VT_Level *tr_level = new VT_Level();
 
-    int trv = Engine_GetPCLevelVersion(name);
-    if(trv == TR_UNKNOWN) return false;
-
-    tr_level->read_level(name, trv);
+    tr_level->ReadLevel(name);
     tr_level->prepare_level();
-    //tr_level->dump_textures();
+    if(bDumpTextures) tr_level->dump_textures();
 
     TR_GenWorld(&engine_world, tr_level);
 
@@ -4808,7 +4672,7 @@ bool Engine_LoadPCLevel(const char *name)
     Engine_GetLevelName(buf, name);
 
     Con_Notify(SYSNOTE_LOADED_PC_LEVEL);
-    Con_Notify(SYSNOTE_ENGINE_VERSION, trv, buf);
+    Con_Notify(SYSNOTE_ENGINE_VERSION, tr_level->game_version, buf);
     Con_Notify(SYSNOTE_NUM_ROOMS, engine_world.room_count);
 
     delete tr_level;
@@ -4843,38 +4707,7 @@ int Engine_LoadMap(const char *name)
 
     Gui_DrawLoadScreen(100);
 
-
-    // Here we can place different platform-specific level loading routines.
-    switch(assets_settings.platform_id)
-    {
-        case PLATFORM_PC:
-            if(Engine_LoadPCLevel(name) == false) return 0;
-            break;
-        case PLATFORM_SAT:
-            Con_Printf("Warning: SAT asset loading is NOT implemented!");
-            return 0;
-            break;
-        case PLATFORM_PSX:
-            Con_Printf("Warning: PSX asset loading is NOT implemented!");
-            return 0;
-            break;
-        case PLATFORM_NGE:
-            Con_Printf("Warning: NGE asset loading is NOT implemented!");
-            return 0;
-            break;
-        case PLATFORM_PPC:
-            Con_Printf("Warning: PPC asset loading is NOT implemented!");
-            return 0;
-            break;
-        case PLATFORM_DC:
-            Con_Printf("Warning: DC asset loading is NOT implemented!");
-            return 0;
-            break;
-        default:
-            Con_Printf("Warning: asset loading for unknown platform %d is NOT implemented!", assets_settings.platform_id);
-            return 0;
-            break;
-    }
+   if(Engine_LoadLevel(name) == false) return 0;
 
     engine_world.id   = 0;
     engine_world.name = 0;

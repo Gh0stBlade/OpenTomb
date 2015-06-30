@@ -21,19 +21,19 @@ class TR_Level {
         {
             this->game_version = TR_UNKNOWN;
             strncpy(this->sfx_path, "MAIN.SFX", 256);
-            
+            this->platform_id = 0;
             this->textile8_count = 0;
             this->textile16_count = 0;
             this->textile32_count = 0;
             this->textile8 = NULL;
             this->textile16 = NULL;
             this->textile32 = NULL;
-            
+
             this->floor_data_size = 0;          // destroyed
             this->floor_data = NULL;            // destroyed
             this->mesh_indices_count = 0;       // destroyed
             this->mesh_indices = NULL;          // destroyed
-            
+
             this->animations_count = 0;         // destroyed
             this->animations = NULL;            // destroyed
             this->state_changes_count = 0;      // destroyed
@@ -42,7 +42,7 @@ class TR_Level {
             this->anim_dispatches = NULL;       // destroyed
             this->anim_commands_count = 0;      // destroyed
             this->anim_commands = NULL;         // destroyeds
-            
+
             this->moveables_count = 0;          // destroyed
             this->moveables = NULL;             // destroyed
             this->static_meshes_count = 0;      // destroyed
@@ -62,7 +62,7 @@ class TR_Level {
             this->flyby_cameras = NULL;         // destroyed
             this->sound_sources_count = 0;      // destroyed
             this->sound_sources = NULL;         // destroyed
-            
+
             this->boxes_count = 0;              // destroyed
             this->boxes = NULL;                 // destroyed
             this->overlaps_count = 0;           // destroyed
@@ -75,7 +75,7 @@ class TR_Level {
             this->ai_objects = NULL;            // destroyed
             this->cinematic_frames_count = 0;   // destroyed
             this->cinematic_frames = NULL;      // destroyed
-            
+
             this->demo_data_count = 0;          // destroyed
             this->demo_data = NULL;             // destroyed
             this->soundmap = NULL;              // destroyed
@@ -91,194 +91,194 @@ class TR_Level {
             this->frame_data = NULL;            // destroyed
             this->mesh_tree_data_size = 0;      // destroyed
             this->mesh_tree_data = NULL;        // destroyed
-            
+
             this->meshes_count = 0;             // destroyed
             this->meshes = NULL;                // destroyed
             this->rooms_count = 0;              // destroyed
             this->rooms = NULL;                 // destroyed
         }
-        
+
         ~TR_Level()
         {
             uint32_t i;
-            
+
             /**destroy all textiles**/
             if(this->textile8_count)
             {
-                this->textile8_count = 0; 
-                free(this->textile8); 
-                this->textile8 = NULL; 
+                this->textile8_count = 0;
+                free(this->textile8);
+                this->textile8 = NULL;
             }
-            
+
             if(this->textile16_count)
             {
-                this->textile16_count = 0; 
-                free(this->textile16); 
-                this->textile16 = NULL; 
+                this->textile16_count = 0;
+                free(this->textile16);
+                this->textile16 = NULL;
             }
-            
+
             if(this->textile32_count)
             {
-                this->textile32_count = 0; 
-                free(this->textile32); 
-                this->textile32 = NULL; 
+                this->textile32_count = 0;
+                free(this->textile32);
+                this->textile32 = NULL;
             }
-            
+
             /**destroy other data**/
             if(this->floor_data_size)
             {
-                this->floor_data_size = 0; 
-                free(this->floor_data); 
-                this->floor_data = NULL; 
+                this->floor_data_size = 0;
+                free(this->floor_data);
+                this->floor_data = NULL;
             }
-            
+
             if(this->mesh_indices_count)
             {
-                this->mesh_indices_count = 0; 
-                free(this->mesh_indices); 
-                this->mesh_indices = NULL; 
+                this->mesh_indices_count = 0;
+                free(this->mesh_indices);
+                this->mesh_indices = NULL;
             }
-            
+
             if(this->animations_count)
             {
-                this->animations_count = 0; 
-                free(this->animations); 
-                this->animations = NULL; 
+                this->animations_count = 0;
+                free(this->animations);
+                this->animations = NULL;
             }
-            
+
             if(this->state_changes_count)
             {
-                this->state_changes_count = 0; 
-                free(this->state_changes); 
-                this->state_changes = NULL; 
+                this->state_changes_count = 0;
+                free(this->state_changes);
+                this->state_changes = NULL;
             }
-            
+
             if(this->anim_dispatches_count)
             {
-                this->anim_dispatches_count = 0; 
-                free(this->anim_dispatches); 
-                this->anim_dispatches = NULL; 
+                this->anim_dispatches_count = 0;
+                free(this->anim_dispatches);
+                this->anim_dispatches = NULL;
             }
-            
+
             if(this->anim_commands_count)
             {
-                this->anim_commands_count = 0; 
-                free(this->anim_commands); 
-                this->anim_commands = NULL; 
-            }            
-            
+                this->anim_commands_count = 0;
+                free(this->anim_commands);
+                this->anim_commands = NULL;
+            }
+
             if(this->moveables_count)
             {
-                this->moveables_count = 0; 
-                free(this->moveables); 
-                this->moveables = NULL; 
+                this->moveables_count = 0;
+                free(this->moveables);
+                this->moveables = NULL;
             }
-            
+
             if(this->static_meshes_count)
             {
-                this->static_meshes_count = 0; 
-                free(this->static_meshes); 
-                this->static_meshes = NULL; 
+                this->static_meshes_count = 0;
+                free(this->static_meshes);
+                this->static_meshes = NULL;
             }
-            
+
             if(this->object_textures_count)
             {
-                this->object_textures_count = 0; 
-                free(this->object_textures); 
-                this->object_textures = NULL; 
+                this->object_textures_count = 0;
+                free(this->object_textures);
+                this->object_textures = NULL;
             }
-            
+
             if(this->animated_textures_count)
             {
                 this->animated_textures_count = 0;
-                free(this->animated_textures); 
-                this->animated_textures = NULL; 
+                free(this->animated_textures);
+                this->animated_textures = NULL;
             }
-            
+
             if(this->sprite_textures_count)
             {
-                this->sprite_textures_count = 0; 
-                free(this->sprite_textures); 
-                this->sprite_textures = NULL; 
+                this->sprite_textures_count = 0;
+                free(this->sprite_textures);
+                this->sprite_textures = NULL;
             }
-            
+
             if(this->sprite_sequences_count)
             {
-                this->sprite_sequences_count = 0; 
-                free(this->sprite_sequences); 
-                this->sprite_sequences = NULL; 
+                this->sprite_sequences_count = 0;
+                free(this->sprite_sequences);
+                this->sprite_sequences = NULL;
             }
-            
+
             if(this->cameras_count)
             {
-                this->cameras_count = 0; 
-                free(this->cameras); 
-                this->cameras = NULL; 
+                this->cameras_count = 0;
+                free(this->cameras);
+                this->cameras = NULL;
             }
-            
+
             if(this->flyby_cameras_count)
             {
-                this->flyby_cameras_count = 0; 
-                free(this->flyby_cameras); 
-                this->flyby_cameras = NULL; 
+                this->flyby_cameras_count = 0;
+                free(this->flyby_cameras);
+                this->flyby_cameras = NULL;
             }
-            
+
             if(this->sound_sources_count)
             {
-                this->sound_sources_count = 0; 
-                free(this->sound_sources); 
-                this->sound_sources = NULL; 
+                this->sound_sources_count = 0;
+                free(this->sound_sources);
+                this->sound_sources = NULL;
             }
-            
+
             if(this->boxes_count)
             {
-                this->boxes_count = 0; 
-                free(this->boxes); 
-                this->boxes = NULL; 
+                this->boxes_count = 0;
+                free(this->boxes);
+                this->boxes = NULL;
             }
-            
+
             if(this->overlaps_count)
             {
-                this->overlaps_count = 0; 
-                free(this->overlaps); 
-                this->overlaps = NULL; 
+                this->overlaps_count = 0;
+                free(this->overlaps);
+                this->overlaps = NULL;
             }
-            
+
             if(this->zones_count)
             {
-                this->zones_count = 0; 
-                free(this->zones); 
-                this->zones = NULL; 
+                this->zones_count = 0;
+                free(this->zones);
+                this->zones = NULL;
             }
-            
+
             if(this->items_count)
             {
-                this->items_count = 0; 
-                free(this->items); 
-                this->items = NULL; 
+                this->items_count = 0;
+                free(this->items);
+                this->items = NULL;
             }
-            
+
             if(this->ai_objects_count)
             {
-                this->ai_objects_count = 0; 
-                free(this->ai_objects); 
-                this->ai_objects = NULL; 
+                this->ai_objects_count = 0;
+                free(this->ai_objects);
+                this->ai_objects = NULL;
             }
-            
+
             if(this->cinematic_frames_count)
             {
-                this->cinematic_frames_count = 0; 
-                free(this->cinematic_frames); 
-                this->cinematic_frames = NULL; 
+                this->cinematic_frames_count = 0;
+                free(this->cinematic_frames);
+                this->cinematic_frames = NULL;
             }
 
             if(this->demo_data_count)
             {
-                this->demo_data_count = 0; 
-                free(this->demo_data); 
-                this->demo_data = NULL; 
+                this->demo_data_count = 0;
+                free(this->demo_data);
+                this->demo_data = NULL;
             }
-            
+
             if(this->soundmap)
             {
                 free(this->soundmap);
@@ -287,41 +287,41 @@ class TR_Level {
 
             if(this->sound_details_count)
             {
-                this->sound_details_count = 0; 
-                free(this->sound_details); 
-                this->sound_details = NULL; 
+                this->sound_details_count = 0;
+                free(this->sound_details);
+                this->sound_details = NULL;
             }
-            
+
             if(this->samples_data)
             {
                 this->samples_data_size = 0;
-                this->samples_count = 0; 
-                free(this->samples_data); 
-                this->samples_data = NULL; 
+                this->samples_count = 0;
+                free(this->samples_data);
+                this->samples_data = NULL;
             }
-            
+
             if(this->sample_indices_count)
             {
-                this->sample_indices_count = 0; 
-                free(this->sample_indices); 
-                this->sample_indices = NULL; 
+                this->sample_indices_count = 0;
+                free(this->sample_indices);
+                this->sample_indices = NULL;
             }
-           
+
             if(this->frame_data_size)
             {
-                this->frame_data_size = 0; 
-                free(this->frame_data); 
-                this->frame_data = NULL; 
+                this->frame_data_size = 0;
+                free(this->frame_data);
+                this->frame_data = NULL;
             }
 
             if(this->mesh_tree_data_size)
             {
-                this->mesh_tree_data_size = 0; 
-                free(this->mesh_tree_data); 
-                this->mesh_tree_data = NULL; 
+                this->mesh_tree_data_size = 0;
+                free(this->mesh_tree_data);
+                this->mesh_tree_data = NULL;
             }
-            
-            
+
+
             if(this->meshes_count)
             {
                 for(i = 0; i < this->meshes_count; i ++)
@@ -331,52 +331,52 @@ class TR_Level {
                         free(this->meshes[i].lights);
                         this->meshes[i].lights = NULL;
                     }
-                    
+
                     if(this->meshes[i].num_textured_triangles)
                     {
                         free(this->meshes[i].textured_triangles);
                         this->meshes[i].textured_triangles = NULL;
                         this->meshes[i].num_textured_triangles = 0;
                     }
-                    
+
                     if(this->meshes[i].num_textured_rectangles)
                     {
                         free(this->meshes[i].textured_rectangles);
                         this->meshes[i].textured_rectangles = NULL;
                         this->meshes[i].num_textured_rectangles = 0;
                     }
-                    
+
                     if(this->meshes[i].num_coloured_triangles)
                     {
                         free(this->meshes[i].coloured_triangles);
                         this->meshes[i].coloured_triangles = NULL;
                         this->meshes[i].num_coloured_triangles = 0;
                     }
-                    
+
                     if(this->meshes[i].num_coloured_rectangles)
                     {
                         free(this->meshes[i].coloured_rectangles);
                         this->meshes[i].coloured_rectangles = NULL;
                         this->meshes[i].num_coloured_rectangles = 0;
                     }
-                    
+
                     if(this->meshes[i].normals)
                     {
                         free(this->meshes[i].normals);
                         this->meshes[i].normals = NULL;
                     }
-                    
+
                     if(this->meshes[i].vertices)
                     {
                         free(this->meshes[i].vertices);
                         this->meshes[i].vertices = NULL;
                     }
                 }
-                this->meshes_count = 0; 
-                free(this->meshes); 
-                this->meshes = NULL; 
+                this->meshes_count = 0;
+                free(this->meshes);
+                this->meshes = NULL;
             }
-            
+
             if(this->rooms_count)
             {
                 for(i = 0; i < this->rooms_count; i ++)
@@ -387,21 +387,21 @@ class TR_Level {
                         free(this->rooms[i].layers);
                         this->rooms[i].layers = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_lights)
                     {
                         this->rooms[i].num_lights = 0;
                         free(this->rooms[i].lights);
                         this->rooms[i].lights = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_portals)
                     {
                         this->rooms[i].num_portals = 0;
                         free(this->rooms[i].portals);
                         this->rooms[i].portals = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_xsectors * this->rooms[i].num_zsectors)
                     {
                         this->rooms[i].num_xsectors = 0;
@@ -409,35 +409,35 @@ class TR_Level {
                         free(this->rooms[i].sector_list);
                         this->rooms[i].sector_list = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_sprites)
                     {
                         this->rooms[i].num_sprites = 0;
                         free(this->rooms[i].sprites);
                         this->rooms[i].sprites = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_static_meshes)
                     {
                         this->rooms[i].num_static_meshes = 0;
                         free(this->rooms[i].static_meshes);
                         this->rooms[i].static_meshes = NULL;
-                    }                    
-                    
+                    }
+
                     if(this->rooms[i].num_triangles)
                     {
                         this->rooms[i].num_triangles = 0;
                         free(this->rooms[i].triangles);
                         this->rooms[i].triangles = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_rectangles)
                     {
                         this->rooms[i].num_rectangles = 0;
                         free(this->rooms[i].rectangles);
                         this->rooms[i].rectangles = NULL;
                     }
-                    
+
                     if(this->rooms[i].num_vertices)
                     {
                         this->rooms[i].num_vertices = 0;
@@ -450,9 +450,10 @@ class TR_Level {
                 this->rooms = NULL;
             }
         }
-        
+
+    uint32_t platform_id;                   /// Used during platform detection
     int32_t game_version;                   ///< \brief game engine version.
-    
+
     uint32_t textile8_count;
     uint32_t textile16_count;
     uint32_t textile32_count;
@@ -524,11 +525,13 @@ class TR_Level {
     uint16_t *frame_data;                   ///< \brief frame data array
     uint32_t mesh_tree_data_size;
     uint32_t *mesh_tree_data;
-        
+
     char     sfx_path[256];
-        
-    void read_level(const char *filename, int32_t game_version);
-    void read_level(SDL_RWops * const src, int32_t game_version);
+
+    void SetSFXPath(const char* filename);
+    void ReadLevel(const char* filename);
+    void GetPlatform(SDL_RWops * const src);//Detection to see if file belongs to specific platform
+    void GetVersion(SDL_RWops * const src);
 
     protected:
     uint32_t num_textiles;          ///< \brief number of 256x256 textiles.
@@ -546,6 +549,8 @@ class TR_Level {
     uint32_t read_bitu32(SDL_RWops * const src);
     float read_float(SDL_RWops * const src);
     float read_mixfloat(SDL_RWops * const src);
+
+    void GetPlatformAndVersion(const char* filename, SDL_RWops * const src);
 
     void read_mesh_data(SDL_RWops * const src);
     void read_frame_moveable_data(SDL_RWops * const src);

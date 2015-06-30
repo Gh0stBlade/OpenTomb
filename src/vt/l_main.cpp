@@ -21,9 +21,11 @@
 
 #include <SDL2/SDL.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "l_main.h"
 #include "../system.h"
+#include "../engine.h"
 
 #define RCSID "$Id: l_main.cpp,v 1.10 2002/09/20 15:59:02 crow Exp $"
 
@@ -155,7 +157,7 @@ void TR_Level::read_frame_moveable_data(SDL_RWops * const src)
     //delete [] buffer;
 }
 
-void TR_Level::read_level(const char *filename, int32_t game_version)
+void TR_Level::SetSFXPath(const char *filename)
 {
     int len, i, len2;
 
@@ -176,48 +178,148 @@ void TR_Level::read_level(const char *filename, int32_t game_version)
         strcat(this->sfx_path, "MAIN.SFX");
     }
 
-    this->read_level(SDL_RWFromFile(filename, "rb"), game_version);
+
+}
+
+void TR_Level::GetPlatformAndVersion(const char* filename, SDL_RWops * const src)
+{
+    uint32_t len = strlen(filename);
+    uint32_t fileVersion;
+    SDL_RWseek(src, 0, SEEK_SET); //Skip to offset 0
+
+    if(len < 0 && len >= 5)
+        Sys_extError("Error: GetPlatformAndVersion() filename is too short!");
+
+    this->platform_id = -1;
+    this->game_version = -1;
+
+    fileVersion = read_bitu32(src);//Usually the first uint is the fileVersion
+
+    if(toupper(filename[len-3])  == 'P' && toupper(filename[len-2]) == 'S' && toupper(filename[len-1]) == 'X')///PSX
+    {
+        this->platform_id = PLATFORM_PSX;
+    }
+    else if(toupper(filename[len-3])  == 'S' && toupper(filename[len-2]) == 'A' && toupper(filename[len-1]) == 'T')///SAT
+    {
+        this->platform_id = PLATFORM_SAT;
+        this->game_version = TR_I;
+    }
+    else if(toupper(filename[len-3])  == 'P' && toupper(filename[len-2]) == 'H' && toupper(filename[len-1]) == 'D')///PHD
+    {
+        this->platform_id = PLATFORM_PC;
+        if(fileVersion == 32)
+            this->game_version = TR_I;
+    }
+    else if(toupper(filename[len-3])  == 'T' && toupper(filename[len-2]) == 'U' && toupper(filename[len-1]) == 'B')///TUB
+    {
+        this->platform_id = PLATFORM_PC;
+        if(fileVersion == 32)
+            this->game_version = TR_I_UB;
+    }
+    else if(toupper(filename[len-3])  == 'T' && toupper(filename[len-2]) == 'R' && toupper(filename[len-1]) == '2')///TR2
+    {
+        this->platform_id = PLATFORM_PC;
+        if(fileVersion == 45)
+        {
+            this->game_version = TR_II;
+        }
+        else if((fileVersion & 0xFFFF) == 56)
+        {
+            this->game_version = TR_III;
+        }
+    }
+    else if(toupper(filename[len-3])  == 'T' && toupper(filename[len-2]) == 'R' && toupper(filename[len-1]) == '4')///TR4
+    {
+        this->platform_id = PLATFORM_PC;
+        if(fileVersion == 0x345254)///'TR4'
+            this->game_version = TR_IV;
+    }
+    else if(toupper(filename[len-3])  == 'T' && toupper(filename[len-2]) == 'R' && toupper(filename[len-1]) == 'C')///TRC
+    {
+        this->platform_id = PLATFORM_PC;
+        if(fileVersion == 0x345254)///'TR4'
+            this->game_version = TR_V;
+    }
+    else
+    {
+        Sys_extError("Error: GetPlatformAndVersion() Input file has unhandled extension!");
+    }
+
+    ///This is for platforms other than PC that have the version NOT stored or stored elsewhere!
+    if(this->game_version == -1)
+    {
+        switch(this->platform_id)
+        {
+        case PLATFORM_DC:
+            SDL_RWseek(src, 0x80C, SEEK_SET);
+            fileVersion = read_bitu32(src);
+            if(fileVersion == 0xCDCDCDCD)
+            {
+                this->platform_id = PLATFORM_DC;
+                this->game_version = TR_V;
+            }
+            break;
+        default:
+                Sys_extError("Error: GetPlatformAndVersion() Platform is unsupported!");
+                break;
+        }
+    }
+
+    SDL_RWseek(src, 0, SEEK_SET); //Skip to offset 0
 }
 
 /** \brief reads the level.
   *
-  * Takes a SDL_RWop and the game_version of the file and reads the structures into the members of TR_Level.
+  * Creates a SDL_RWop and reads the file the structures into the members of TR_Level based on the platform detected and game version
   */
-void TR_Level::read_level(SDL_RWops * const src, int32_t game_version)
+void TR_Level::ReadLevel(const char* filename)
 {
+    SDL_RWops *src = SDL_RWFromFile(filename, "rb");
+
     if (!src)
-        Sys_extError("Invalid SDL_RWops");
+        Sys_extError("Error: Invalid SDL_RWops");
 
-    this->game_version = game_version;
+    this->GetPlatformAndVersion(filename, src);//Gets platform of assets and game version
+    this->SetSFXPath(filename);//Sets up MAIN.SFX path based on current directory of input level file
 
-    switch (game_version)
+    if(this->platform_id != assets_settings.platform_id)///@FIXME don't exit, return 0
+      Sys_extError("Error: Platform check failed!");
+
+    if(assets_settings.platform_id == PLATFORM_PC)
     {
-        case TR_I:
-            read_tr_level(src, 0);
-            break;
-        case TR_I_DEMO:
-        case TR_I_UB:
-            read_tr_level(src, 1);
-            break;
-        case TR_II:
-            read_tr2_level(src, 0);
-            break;
-        case TR_II_DEMO:
-            read_tr2_level(src, 1);
-            break;
-        case TR_III:
-            read_tr3_level(src);
-            break;
-        case TR_IV:
-        case TR_IV_DEMO:
-            read_tr4_level(src);
-            break;
-        case TR_V:
-            read_tr5_level(src);
-            break;
-        default:
-            Sys_extError("Invalid game version");
-            break;
+        switch (this->game_version)
+        {
+            case TR_I:
+                read_tr_level(src, 0);
+                break;
+            case TR_I_DEMO:
+            case TR_I_UB:
+                read_tr_level(src, 1);
+                break;
+            case TR_II:
+                read_tr2_level(src, 0);
+                break;
+            case TR_II_DEMO:
+                read_tr2_level(src, 1);
+                break;
+            case TR_III:
+                read_tr3_level(src);
+                break;
+            case TR_IV:
+            case TR_IV_DEMO:
+                read_tr4_level(src);
+                break;
+            case TR_V:
+                read_tr5_level(src);
+                break;
+            default:
+                Sys_extError("Error: Invalid GAME_VERSION!");
+                break;
+        }
+    }
+    else
+    {
+        Sys_extError("Error: Unimplemented level loading code for this platform!");
     }
 
     SDL_RWclose(src);
