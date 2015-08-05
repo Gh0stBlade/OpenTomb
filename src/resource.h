@@ -132,6 +132,8 @@ void TR_GenRooms(World *world, class VT_Level *tr);
 void TR_GenRoom(size_t room_index, std::shared_ptr<Room>& room, World *world, class VT_Level *tr);
 void TR_GenRoomProperties(World *world, class VT_Level *tr);
 void TR_GenBoxes(World *world, class VT_Level *tr);
+void TR_GenOverlaps(World *world, class VT_Level *tr);
+void TR_GenZones(World *world, class VT_Level *tr);
 void TR_GenCameras(World *world, class VT_Level *tr);
 void TR_GenSamples(World *world, class VT_Level *tr);
 

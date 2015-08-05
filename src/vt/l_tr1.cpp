@@ -40,6 +40,15 @@ void TR_Level::read_tr_colour(SDL_RWops * const src, tr2_colour_t & colour)
     colour.a = 0;
 }
 
+void TR_Level::read_tr_zones(SDL_RWops * const src)
+{
+   for(uint32_t i = 0; i != this->zones_count*6; i++)
+   {
+       this->zones[i] = read_bit16(src);
+   }
+}
+
+
 /** \brief reads three 16-bit vertex components.
   *
   * The values get converted from bit16 to float. y and z are negated to fit OpenGLs coordinate system.
@@ -723,7 +732,9 @@ void TR_Level::read_tr_level(SDL_RWops * const src, bool demo_or_ub)
         this->overlaps[i] = read_bitu16(src);
 
     // Zones
-    SDL_RWseek(src, this->boxes_count * 12, RW_SEEK_CUR);
+    this->zones_count = this->boxes_count;
+    this->zones = (int16_t*)malloc(this->zones_count * (6 * sizeof(int16_t)));
+    read_tr_zones(src);
 
     this->animated_textures_count = read_bitu32(src);
     this->animated_textures_uv_count = 0; // No UVRotate in TR1

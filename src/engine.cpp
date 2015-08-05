@@ -49,7 +49,7 @@
 #include "strings.h"
 
 #include "LuaState.h"
-
+void SearchBoxes(unsigned int fromBoxIdx, unsigned int toBoxIdx, bool &bPathFound, unsigned int currentLevel);
 SDL_Window             *sdl_window = nullptr;
 SDL_Joystick           *sdl_joystick = nullptr;
 SDL_GameController     *sdl_controller = nullptr;
@@ -427,7 +427,7 @@ void Engine_Display()
     {
         Engine_ShowDebugInfo();
     }
-
+    Engine_ShowDebugInfo();
     glFrontFace(GL_CW);
 
     renderer.genWorldList();
@@ -524,12 +524,12 @@ void Engine_ShowDebugInfo()
         txt = Gui_OutTextXY(20.0 / screen_info.w, 80.0 / screen_info.w, "Z_min = %d, Z_max = %d, W = %d", (int)fc->floor_point[2], (int)fc->ceiling_point[2], (int)fc->water_level);
         */
 
-        Gui_OutTextXY(30.0, 30.0, "last_anim = %03d, curr_anim = %03d, next_anim = %03d, last_st = %03d, next_st = %03d",
-                      ent->m_bf.animations.last_animation,
-                      ent->m_bf.animations.current_animation,
-                      ent->m_bf.animations.next_animation,
-                      ent->m_bf.animations.last_state,
-                      ent->m_bf.animations.next_state);
+       // Gui_OutTextXY(30.0, 30.0, "last_anim = %03d, curr_anim = %03d, next_anim = %03d, last_st = %03d, next_st = %03d",
+       //               ent->m_bf.animations.last_animation,
+        //              ent->m_bf.animations.current_animation,
+         //             ent->m_bf.animations.next_animation,
+          //            ent->m_bf.animations.last_state,
+           //           ent->m_bf.animations.next_state);
         //Gui_OutTextXY(30.0, 30.0, "curr_anim = %03d, next_anim = %03d, curr_frame = %03d, next_frame = %03d", ent->bf.animations.current_animation, ent->bf.animations.next_animation, ent->bf.animations.current_frame, ent->bf.animations.next_frame);
         //Gui_OutTextXY(NULL, 20, 8, "posX = %f, posY = %f, posZ = %f", engine_world.character->transform[12], engine_world.character->transform[13], engine_world.character->transform[14]);
     }
@@ -557,11 +557,87 @@ void Engine_ShowDebugInfo()
         RoomSector* rs = engine_camera.m_currentRoom->getSectorRaw(engine_camera.m_pos);
         if(rs != nullptr)
         {
-            Gui_OutTextXY(30.0, 90.0, "room = (id = %d, sx = %d, sy = %d)", engine_camera.m_currentRoom->id, rs->index_x, rs->index_y);
-            Gui_OutTextXY(30.0, 120.0, "room_below = %d, room_above = %d", (rs->sector_below != nullptr) ? (rs->sector_below->owner_room->id) : (-1), (rs->sector_above != nullptr) ? (rs->sector_above->owner_room->id) : (-1));
+            if(rs->box_index > 0 && engine_world.room_boxes[rs->box_index].overlap_index > 0)//Check incase we go out of bounds and cause a crash
+            {
+                bool bPrintOverlaps = false;//Print overlaps on-screen
+                bool bSearchBoxes = true;
+                unsigned int uiTrueBoxIdx = 0;//True box idx minus flag & 0x8000
+                unsigned int uiO = 0;//Actual overlap index with & 0x8000
+                ///@INFO
+                ///1. Room Sectors have a Box.
+                ///2. The Box points to the start Overlap of an Overlap LIST also known as "LOT"?
+                ///3. The Overlaps point to an additional box? Preferably, the one to move to?
+                ///@TODO OverlapIndex & 0x7FFF
+
+                if(bPrintOverlaps)
+                {
+                    unsigned int uiX = 380;
+                    unsigned int uiY = 8;
+                    unsigned int uiCurrentSectorOverlapIndex = 0;
+                    uiCurrentSectorOverlapIndex = engine_world.room_boxes[rs->box_index].overlap_index;//Index of this current sector's box's overlap index
+                    while(true)//While not end of overlap list
+                    {
+                        uiO = engine_world.room_overlaps[uiCurrentSectorOverlapIndex].box_index;
+                        Gui_OutTextXY(uiX, uiY, "Box Index: %d, Gnd Zone: %d", uiO&0x7FFF, engine_world.room_zones[(uiO&0x7FFF)].id);
+                        if(uiO & 0x8000) break;//Last Overlap stop loop
+                        uiCurrentSectorOverlapIndex++;//We go forward until & 0x8000 tells us to stop, end of overlap list
+                        uiY += 14;
+                    }
+                    uiO = engine_world.room_overlaps[engine_world.room_boxes[rs->box_index].overlap_index].box_index;
+                    Gui_OutTextXY(20.0, 8.0, "Gnd Zone: %d, Box Index: %d -> Box's Overlap Index: %d", engine_world.room_zones[rs->box_index].id, rs->box_index, engine_world.room_boxes[rs->box_index].overlap_index, (uiO&0x7FFF));
+                }
+                if(bSearchBoxes && rs->box_index > 0 && engine_world.room_boxes[rs->box_index].overlap_index > 0)//Check incase we go out of bounds and cause a crash
+                {
+                    bool bPathFound = false;
+                    unsigned int uiCurrentLevel = 0;//Recursion level
+                    unsigned int uiTargetBox = 115;
+                    SearchBoxes(rs->box_index, uiTargetBox, bPathFound, uiCurrentLevel);//696 is trex main room boss
+                    Gui_OutTextXY(20.0, 100.0, "Target Box: %d, Target Found: %d Current Box Index: %d", uiTargetBox, bPathFound, (rs->box_index&0x7FFF));
+                }
+            }
+
+            //Gui_OutTextXY(30.0, 90.0, "room = (id = %d, sx = %d, sy = %d)", engine_camera.m_currentRoom->id, rs->index_x, rs->index_y);
+           // Gui_OutTextXY(30.0, 120.0, "room_below = %d, room_above = %d", (rs->sector_below != nullptr) ? (rs->sector_below->owner_room->id) : (-1), (rs->sector_above != nullptr) ? (rs->sector_above->owner_room->id) : (-1));
         }
     }
-    Gui_OutTextXY(30.0, 150.0, "cam_pos = (%.1f, %.1f, %.1f)", engine_camera.m_pos[0], engine_camera.m_pos[1], engine_camera.m_pos[2]);
+    //Gui_OutTextXY(30.0, 150.0, "cam_pos = (%.1f, %.1f, %.1f)", engine_camera.m_pos[0], engine_camera.m_pos[1], engine_camera.m_pos[2]);
+}
+
+void SearchBoxes(unsigned int fromBoxIdx, unsigned int toBoxIdx, bool &bPathFound, unsigned int currentLevel)
+{
+    if(currentLevel > 1024) return;
+    if(bPathFound) return;
+    //if(fromBoxIdx > engine_world.room_boxes.size() || fromBoxIdx < engine_world.room_boxes.size() || toBoxIdx > engine_world.room_boxes.size() || toBoxIdx < engine_world.room_boxes.size()) return; //Out of range
+
+    currentLevel++;
+    RoomBox* fromBox = &engine_world.room_boxes[(fromBoxIdx&0x7FFF)];
+    RoomBox* toBox = &engine_world.room_boxes[(toBoxIdx&0x7FFF)];
+    RoomOverlap* fromOverlap = &engine_world.room_overlaps[fromBox->overlap_index];//We'll iterate through this overlap list
+
+    while(true)//While not end of overlap list
+    {
+        if(bPathFound) return;
+
+        if((fromOverlap->box_index&0x7FFF) == (toBoxIdx&0x7FFF))//Found matching box and overlap index match?
+        {
+            bPathFound = true;
+            return;
+        }
+        else
+        {
+            if(engine_world.room_zones[(fromOverlap->box_index&0x7FFF)].id == engine_world.room_zones[(toBoxIdx&0x7FFF)].id)//If this current overlap box has same zone as dest box, search all overlaps of this box
+                SearchBoxes((fromOverlap->box_index&0x7FFF), (toBoxIdx&0x7FFF), bPathFound, currentLevel);//Search this overlap box's overlap list until we reach destination box
+
+            if(fromOverlap->box_index & 0x8000)
+            {
+                break;
+            }
+            else///@FIXME inf loop tr2?
+            {
+                fromOverlap++;//Next overlap
+            }
+        }
+    }
 }
 
 /**

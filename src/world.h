@@ -203,6 +203,16 @@ struct RoomBox
     int32_t     overlap_index;
 };
 
+struct RoomOverlap
+{
+    uint16_t     box_index;
+};
+
+struct RoomZone
+{
+    uint16_t     id;
+};
+
 struct RoomSector
 {
     uint32_t                    trig_index; // Trigger function index.
@@ -367,6 +377,8 @@ struct World
     std::vector< std::shared_ptr<Room> > rooms;
 
     std::vector<RoomBox> room_boxes;
+    std::vector<RoomOverlap> room_overlaps;
+    std::vector<RoomZone> room_zones;
 
     struct FlipInfo
     {

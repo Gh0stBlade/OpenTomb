@@ -526,6 +526,7 @@ protected:
     void read_mesh_data(SDL_RWops * const src);
     void read_frame_moveable_data(SDL_RWops * const src);
 
+    void read_tr_zones(SDL_RWops * const src);
     void read_tr_colour(SDL_RWops * const src, tr2_colour_t & colour);
     void read_tr_vertex16(SDL_RWops * const src, tr5_vertex_t & vertex);
     void read_tr_vertex32(SDL_RWops * const src, tr5_vertex_t & vertex);

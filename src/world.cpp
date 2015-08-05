@@ -388,6 +388,8 @@ void World::prepare()
     stream_track_map.clear();
 
     room_boxes.clear();
+    room_overlaps.clear();
+    room_zones.clear();
     cameras_sinks.clear();
     skeletal_models.clear();
     sky_box = nullptr;
@@ -457,7 +459,8 @@ void World::empty()
     flip_data.clear();
 
     room_boxes.clear();
-
+    room_overlaps.clear();
+    room_zones.clear();
     cameras_sinks.clear();
 
     /*sprite empty*/

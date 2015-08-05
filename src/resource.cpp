@@ -1765,6 +1765,8 @@ void TR_GenWorld(World *world, class VT_Level *tr)
     Gui_DrawLoadScreen(420);
 
     TR_GenBoxes(world, tr);             // Generate boxes.
+    TR_GenOverlaps(world, tr);          // Generate overlaps.
+    TR_GenZones(world, tr);             // Generate zones.
     Gui_DrawLoadScreen(440);
 
     TR_GenCameras(world, tr);           // Generate cameras & sinks.
@@ -2361,6 +2363,30 @@ void TR_GenBoxes(World *world, class VT_Level *tr)
         room.x_max = tr->boxes[i].xmax;
         room.y_min = -tr->boxes[i].zmax;
         room.y_max = -tr->boxes[i].zmin;
+    }
+}
+
+void TR_GenOverlaps(World *world, class VT_Level *tr)
+{
+    world->room_overlaps.clear();
+
+    for(uint32_t i = 0; i < tr->overlaps_count; i++)
+    {
+        world->room_overlaps.emplace_back();
+        auto& room = world->room_overlaps.back();
+        room.box_index = tr->overlaps[i];
+    }
+}
+
+void TR_GenZones(World *world, class VT_Level *tr)
+{
+    world->room_zones.clear();
+
+    for(uint32_t i = 0; i < tr->zones_count*6; i++)
+    {
+        world->room_zones.emplace_back();
+        auto& room = world->room_zones.back();
+        room.id = tr->zones[i];
     }
 }
 
