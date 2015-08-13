@@ -832,12 +832,14 @@ void Game_Frame(btScalar time)
             engine_world.character->applyCommands();
             engine_world.character->frame(0.0);
 
-            if(renderer.camera()->m_followTarget == false)//Always follow Lara if no target set
+            if(renderer.camera()->m_followTarget == false)//Always follow Lara if no target set (like original)
             {
                 renderer.camera()->m_targetCamPos = engine_world.character->m_transform.getOrigin();//Reset
             }
-            if(renderer.camera()->m_fixedTimerEnd > SDL_GetTicks())//Fixed timer < CurrentTick = Show fixed camera
+
+            if(SDL_GetTicks() <= renderer.camera()->m_fixedTimerEnd)//Current tick <= Timer end = Show fixed camera
             {
+                renderer.camera()->recalcClipPlanes();
                 renderer.camera()->followFixed();//Override position
             }
             else
