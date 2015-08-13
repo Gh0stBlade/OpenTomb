@@ -838,7 +838,7 @@ void Game_Frame(btScalar time)
             }
             if(renderer.camera()->m_fixedTimerEnd > SDL_GetTicks())//Fixed timer < CurrentTick = Show fixed camera
             {
-                renderer.camera()->FollowFixed();//Override position
+                renderer.camera()->followFixed();//Override position
             }
             else
             {

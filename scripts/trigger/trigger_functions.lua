@@ -131,6 +131,7 @@ end
 
 function setCamera(camera_index, timer, once, zoom)
     print("CAMERA: index = " .. camera_index .. ", timer = " .. timer .. ", once = " .. once .. ", zoom = " .. zoom);
+	setFixedCam(camera_index, timer, once, zoom);
 end
 
 
@@ -153,6 +154,7 @@ end
 
 function setCamTarget(entity_index, timer)
     print("CAMERA TARGET: index = " .. entity_index .. ", timer = " .. timer);
+	setCameraTarget(entity_index, timer);
 end
 
 

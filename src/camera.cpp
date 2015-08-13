@@ -155,7 +155,7 @@ void Camera::recalcClipPlanes()
     assert(!frustum->vertices.empty());
     frustum->vertices[0] = m_pos + m_viewDir;
 }
-void Camera::FollowFixed()
+void Camera::followFixed()
 {
     if(m_fixedCamera == nullptr) return;
 
@@ -163,16 +163,6 @@ void Camera::FollowFixed()
     m_pos[1] = m_fixedCamera->y;
     m_pos[2] = m_fixedCamera->z;
 }
-
-void Camera::LookAt()
-{
-  //  entity_p ent = cam->target_ent;
-
-   // if(ent != NULL)
-   // {
-   // }
-}
-
 
 Camera::Camera()
 {

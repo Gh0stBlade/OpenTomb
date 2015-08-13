@@ -106,8 +106,7 @@ struct Camera
     void deltaRotation(const btVector3 &angles);
     void setRotation(const btVector3& angles);
     void recalcClipPlanes();
-    void FollowFixed();
-    void LookAt();
+    void followFixed();
 };
 
 
