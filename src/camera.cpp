@@ -49,7 +49,12 @@ void Camera::apply()
     m_glViewMat[2][3] = 0.0;
     m_glViewMat[3][3] = 1.0;
 
-    m_glViewProjMat = m_glProjMat * m_glViewMat;
+    if(m_useFixed == true)//Fixed camera override
+    {
+        m_glViewMat = m_glViewMat.lookat(m_pos, m_targetCamPos, m_upDir);
+    }
+
+     m_glViewProjMat = m_glProjMat * m_glViewMat;
 }
 
 void Camera::setFovAspect(GLfloat fov, GLfloat aspect)
@@ -150,6 +155,24 @@ void Camera::recalcClipPlanes()
     assert(!frustum->vertices.empty());
     frustum->vertices[0] = m_pos + m_viewDir;
 }
+void Camera::FollowFixed()
+{
+    if(m_fixedCamera == nullptr) return;
+
+    m_pos[0] = m_fixedCamera->x;
+    m_pos[1] = m_fixedCamera->y;
+    m_pos[2] = m_fixedCamera->z;
+}
+
+void Camera::LookAt()
+{
+  //  entity_p ent = cam->target_ent;
+
+   // if(ent != NULL)
+   // {
+   // }
+}
+
 
 Camera::Camera()
 {

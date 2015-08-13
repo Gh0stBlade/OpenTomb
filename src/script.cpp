@@ -1392,6 +1392,61 @@ float lua_GetEntitySpeedLinear(int id)
     return ent->m_speed.length();
 }
 
+int lua_setFixedCam(lua_State * lua)
+{
+    if(lua_gettop(lua) < 4)
+    {
+        //Con_Warning(SYSWARN_WRONG_ARGS, "[camera_index], [timer], [once], [zoom]");
+        return 0;
+    }
+
+    uint32_t cam_index = lua_tointeger(lua, 1);
+    uint32_t timer = lua_tointeger(lua, 2);
+    uint32_t once = lua_tointeger(lua, 3);
+    uint32_t zoom = lua_tointeger(lua, 4);
+
+    if(engine_world.cameras_sinks.size() < cam_index || &engine_world.cameras_sinks[cam_index] == nullptr)
+    {
+//        Con_Printf("Error: fixed camera at index: %i does not exist!", cam_index);
+        return 0;
+    }
+
+    StatCameraSink* fixed_camera = &engine_world.cameras_sinks[cam_index];
+    renderer.camera()->m_fixedTimerEnd = SDL_GetTicks()+(timer*1000);
+    renderer.camera()->m_fixedCamera = fixed_camera;
+    renderer.camera()->m_useFixed = true;
+    return 1;
+}
+
+int lua_setCameraTarget(lua_State * lua)
+{
+    if(lua_gettop(lua) < 2)
+    {
+        //Con_Warning(SYSWARN_WRONG_ARGS, "[entity_index], [timer]");
+        return 0;
+    }
+
+    uint32_t entity_index = lua_tointeger(lua, 1);
+    uint32_t timer = lua_tointeger(lua, 2);///? uhh
+
+    std::shared_ptr<Entity> ent = engine_world.getEntityByID(entity_index);
+    if(ent != nullptr)
+    {
+        renderer.camera()->m_targetCamPos = ent->m_transform.getOrigin();
+        renderer.camera()->m_useFixed = true;
+        renderer.camera()->m_followTarget = true;
+    }
+    else
+    {
+        //renderer.cam->target_ent = NULL;
+        //Con_Printf("Failed to find entity with id: %i", entity_index);
+        return 0;
+    }
+
+    return 1;
+}
+
+
 void lua_SetEntitySpeed(int id, float vx, lua::Value vy, lua::Value vz)
 {
     std::shared_ptr<Entity> ent = engine_world.getEntityByID(id);
@@ -3405,6 +3460,9 @@ void MainEngine::registerMainFunctions()
     registerC("deleteFont", lua_DeleteFont);
     registerC("addFontStyle", lua_AddFontStyle);
     registerC("deleteFontStyle", lua_DeleteFontStyle);
+
+    registerC("setFixedCam", lua_setFixedCam);
+    registerC("setCameraTarget", lua_setCameraTarget);
 }
 }   // end namespace script
 

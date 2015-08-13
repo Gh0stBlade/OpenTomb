@@ -34,6 +34,24 @@
 struct Room;
 struct Polygon;
 struct Frustum;
+struct Entity;
+
+// Static camera / sink structure.
+// In original engines, static cameras and sinks shared the same structure,
+// albeit with different field meanings. In compiled level, it is unfortunately
+// impossible to tell camera from sink, so the only way is to share the struct
+// between these two types of objects.
+// Thanks to b122251 for extra info describing this structure.
+
+struct StatCameraSink
+{
+    GLfloat                     x;
+    GLfloat                     y;
+    GLfloat                     z;
+    uint16_t                    room_or_strength;   // Room for camera, strength for sink.
+    uint16_t                    flag_or_zone;       // Flag for camera, zone for sink.
+};
+
 
 struct Camera
 {
@@ -65,6 +83,14 @@ struct Camera
 
     int8_t m_targetDir = 1;//Target rotation direction (0 = Back, 1 = Front, 2 = Left, 3 = Right)
 
+    uint32_t m_fixedTimerEnd = 0;
+
+    float4 m_targetCamPos;
+    bool m_followTarget = false;
+
+    StatCameraSink *m_fixedCamera = nullptr;
+    bool m_useFixed = false;//If set will use fixed camera position override
+
     Room* m_currentRoom = nullptr;
 
     Camera();
@@ -80,23 +106,10 @@ struct Camera
     void deltaRotation(const btVector3 &angles);
     void setRotation(const btVector3& angles);
     void recalcClipPlanes();
+    void FollowFixed();
+    void LookAt();
 };
 
-// Static camera / sink structure.
-// In original engines, static cameras and sinks shared the same structure,
-// albeit with different field meanings. In compiled level, it is unfortunately
-// impossible to tell camera from sink, so the only way is to share the struct
-// between these two types of objects.
-// Thanks to b122251 for extra info describing this structure.
-
-struct StatCameraSink
-{
-    GLfloat                     x;
-    GLfloat                     y;
-    GLfloat                     z;
-    uint16_t                    room_or_strength;   // Room for camera, strength for sink.
-    uint16_t                    flag_or_zone;       // Flag for camera, zone for sink.
-};
 
 // Flyby camera structure.
 

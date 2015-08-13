@@ -831,7 +831,21 @@ void Game_Frame(btScalar time)
             engine_world.character->frame(engine_frame_time);
             engine_world.character->applyCommands();
             engine_world.character->frame(0.0);
-            Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 128.0);
+
+            if(renderer.camera()->m_followTarget == false)//Always follow Lara if no target set
+            {
+                renderer.camera()->m_targetCamPos = engine_world.character->m_transform.getOrigin();//Reset
+            }
+            if(renderer.camera()->m_fixedTimerEnd > SDL_GetTicks())//Fixed timer < CurrentTick = Show fixed camera
+            {
+                renderer.camera()->FollowFixed();//Override position
+            }
+            else
+            {
+                Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 128.0);
+                renderer.camera()->m_followTarget = false;
+                renderer.camera()->m_useFixed = false;
+            }
         }
     }
 
