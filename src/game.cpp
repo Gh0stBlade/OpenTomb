@@ -663,7 +663,11 @@ void Cam_FollowEntity(Camera *cam, std::shared_ptr<Entity> ent, btScalar dx, btS
         cam->m_pos[2] = cam->m_currentRoom->bb_max[2] + 2.0f * 64.0f;
     }
 
-    cam->setRotation(cam_angles);
+    if(!cam->m_useFixed || !cam->m_followTarget)//Disable this on fixed cameras
+    {
+        cam->setRotation(cam_angles);
+    }
+
     cam->m_currentRoom = Room_FindPosCogerrence(cam->m_pos, cam->m_currentRoom);
 }
 
@@ -832,21 +836,31 @@ void Game_Frame(btScalar time)
             engine_world.character->applyCommands();
             engine_world.character->frame(0.0);
 
-            if(renderer.camera()->m_followTarget == false)//Always follow Lara if no target set (like original)
+
+            if(renderer.camera()->m_followTarget == false)//Fixed camera to Lara (We always reset this like in original)
             {
-                renderer.camera()->m_targetCamPos = engine_world.character->m_transform.getOrigin();//Reset
+                renderer.camera()->m_targetCamPos = engine_world.character->m_transform.getOrigin();
             }
 
-            if(SDL_GetTicks() <= renderer.camera()->m_fixedTimerEnd)//Current tick <= Timer end = Show fixed camera
+            if((renderer.camera()->m_timerStartTime <= renderer.camera()->m_fixedCameraDelay) && renderer.camera()->m_useFixed == true)//Fixed Camera
             {
-                renderer.camera()->recalcClipPlanes();
-                renderer.camera()->followFixed();//Override position
+                renderer.camera()->followFixed();
+                renderer.camera()->m_timerStartTime += time;
+            }
+            else if(renderer.camera()->m_timerStartTime <= renderer.camera()->m_targetDelay && renderer.camera()->m_useFixed == false)//Entity camera to target
+            {
+                Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 160.0);
+                renderer.camera()->m_timerStartTime += time;
             }
             else
             {
-                Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 128.0);
+                Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 160.0);
                 renderer.camera()->m_followTarget = false;
                 renderer.camera()->m_useFixed = false;
+                renderer.camera()->m_timerStartTime = 0.0f;
+                renderer.camera()->m_fixedCameraDelay = 0;
+                renderer.camera()->m_targetDelay = 0;
+                renderer.camera()->m_fixedCamera = nullptr;
             }
         }
     }

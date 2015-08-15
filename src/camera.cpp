@@ -49,9 +49,11 @@ void Camera::apply()
     m_glViewMat[2][3] = 0.0;
     m_glViewMat[3][3] = 1.0;
 
-    ///@FIXME Too buggy when lookAt target is Lara pos so only lookAt for fixed cameras.
-    if(m_useFixed == true)//Fixed camera override
+     ///@FIXME Too buggy when lookAt target is Lara pos so only lookAt for fixed cameras.
+    if(m_useFixed == true || m_followTarget == true)//Fixed camera override
     {
+        m_upDir = { 0, 0, 1 };///@FIXME
+        m_rightDir = { 1, 0, 0 };///@FIXME
         m_glViewMat = m_glViewMat.lookat(m_pos, m_targetCamPos, m_upDir);
     }
 

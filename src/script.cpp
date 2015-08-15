@@ -1396,6 +1396,7 @@ int lua_setFixedCam(lua_State * lua)
 {
     if(lua_gettop(lua) < 4)
     {
+        ConsoleInfo::instance().warning(SYSWARN_WRONG_ARGS, "[cam_index, timer, once, zoom]");
         return 0;
     }
 
@@ -1404,17 +1405,16 @@ int lua_setFixedCam(lua_State * lua)
     uint32_t once = lua_tointeger(lua, 3);
     uint32_t zoom = lua_tointeger(lua, 4);
 
-    if(timer == 0) timer = 1; ///@FIXME hack, Looks like the trigger functions need to be called every frame not when Lara changes sector!!
-
-    if(engine_world.cameras_sinks.size() < cam_index || &engine_world.cameras_sinks[cam_index] == nullptr)
+    if(engine_world.cameras_sinks.size() < cam_index || &engine_world.cameras_sinks[cam_index] == nullptr || cam_index > engine_world.cameras_sinks.size())
     {
         return 0;
     }
 
-    renderer.camera()->m_fixedTimerEnd = SDL_GetTicks()+(timer*1000);
+    renderer.camera()->m_fixedCameraDelay = timer;
+    renderer.camera()->m_timerStartTime = 0.0f;
     renderer.camera()->m_fixedCamera = &engine_world.cameras_sinks[cam_index];
     renderer.camera()->m_useFixed = true;
-
+    renderer.camera()->m_fixedCamera->hasBeenActivated = true;
     return 1;
 }
 
@@ -1422,18 +1422,21 @@ int lua_setCameraTarget(lua_State * lua)
 {
     if(lua_gettop(lua) < 2)
     {
+        ConsoleInfo::instance().warning(SYSWARN_WRONG_ARGS, "[entity_index, timer]");
         return 0;
     }
 
     uint32_t entity_index = lua_tointeger(lua, 1);
-    uint32_t timer = lua_tointeger(lua, 2);///@FIXME Is this really a timer field?
+    uint32_t timer = lua_tointeger(lua, 2);
 
     std::shared_ptr<Entity> ent = engine_world.getEntityByID(entity_index);
 
     if(ent != nullptr)
     {
+        if(timer == 0) timer = 1; ///@FIXME
+        renderer.camera()->m_targetDelay = timer;
+        renderer.camera()->m_timerStartTime = 0.0f;
         renderer.camera()->m_targetCamPos = ent->m_transform.getOrigin();
-        renderer.camera()->m_useFixed = true;
         renderer.camera()->m_followTarget = true;
     }
     else

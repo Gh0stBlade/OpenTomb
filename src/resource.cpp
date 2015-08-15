@@ -946,7 +946,14 @@ int TR_Sector_TranslateFloorData(RoomSector* sector, class VT_Level *tr)
                             cont_bit = ((*entry) & 0x8000) >> 15;                       // 0b10000000 00000000
 
                             snprintf(buf, 128, "   setCamera(%d, %d, %d, %d); \n", cam_index, cam_timer, cam_once, cam_zoom);
-                            single_events += buf;
+                            if(cam_timer == 0)
+                            {
+                                cont_events += buf;
+                            }
+                            else
+                            {
+                                single_events += buf;
+                            }
                         }
                         break;
 
@@ -2272,6 +2279,7 @@ void TR_GenCameras(World *world, class VT_Level *tr)
         world->cameras_sinks[i].z = -tr->cameras[i].y;
         world->cameras_sinks[i].room_or_strength = tr->cameras[i].room;
         world->cameras_sinks[i].flag_or_zone = tr->cameras[i].unknown1;
+        world->cameras_sinks[i].hasBeenActivated = false;
     }
 }
 

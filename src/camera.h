@@ -50,8 +50,8 @@ struct StatCameraSink
     GLfloat                     z;
     uint16_t                    room_or_strength;   // Room for camera, strength for sink.
     uint16_t                    flag_or_zone;       // Flag for camera, zone for sink.
+    bool                        hasBeenActivated;   // Used for fixed cameras "once"
 };
-
 
 struct Camera
 {
@@ -83,13 +83,15 @@ struct Camera
 
     int8_t m_targetDir = 1;//Target rotation direction (0 = Back, 1 = Front, 2 = Left, 3 = Right)
 
-    uint32_t m_fixedTimerEnd = 0;
-
-    float4 m_targetCamPos;
-    bool m_followTarget = false;
-
     StatCameraSink *m_fixedCamera = nullptr;
+
     bool m_useFixed = false;//If set will use fixed camera position override
+    float m_timerStartTime = 0.0f;
+    uint32_t m_fixedCameraDelay = 0;
+
+    bool m_followTarget = false;//If set point target at pos below
+    float4 m_targetCamPos;
+    uint32_t m_targetDelay = 0;
 
     Room* m_currentRoom = nullptr;
 
