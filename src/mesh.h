@@ -19,6 +19,7 @@
 #define ANIM_CMD_MOVE               0x01
 #define ANIM_CMD_CHANGE_DIRECTION   0x02
 #define ANIM_CMD_JUMP               0x04
+#include "loader/datatypes.h"
 
 class btCollisionShape;
 class btRigidBody;
@@ -145,18 +146,6 @@ struct SpriteBuffer
     uint32_t             *element_count_per_texture;
 };
 
-/*
- * lights
- */
-enum LightType
-{
-    LT_NULL,
-    LT_POINT,
-    LT_SPOTLIGHT,
-    LT_SUN,
-    LT_SHADOW
-};
-
 struct Light
 {
     btVector3 pos;                                         // world position
@@ -169,7 +158,7 @@ struct Light
 
     float                       falloff;
 
-    LightType                   light_type;
+    loader::LightType           light_type;
 };
 
 /*
@@ -365,10 +354,10 @@ struct AnimationFrame
 {
     uint32_t                    id;
     uint8_t                     original_frame_rate;
-    btScalar                    speed_x;                // Forward-backward speed
-    btScalar                    accel_x;                // Forward-backward accel
-    btScalar                    speed_y;                // Left-right speed
-    btScalar                    accel_y;                // Left-right accel
+    int32_t                     speed_x;                // Forward-backward speed
+    int32_t                     accel_x;                // Forward-backward accel
+    int32_t                     speed_y;                // Left-right speed
+    int32_t                     accel_y;                // Left-right accel
     uint32_t                    anim_command;
     uint32_t                    num_anim_commands;
     uint16_t                    state_id;

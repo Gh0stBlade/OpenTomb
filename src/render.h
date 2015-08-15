@@ -5,11 +5,15 @@
 #include <memory>
 #include <vector>
 
+// glew must be included BEFORE btIDebugDraw.h
+#include <GL/glew.h>
+
 #include <LinearMath/btScalar.h>
 #include <LinearMath/btIDebugDraw.h>
 
 #include "matrix4.h"
 #include "vertex_array.h"
+#include "loader/datatypes.h"
 
 #define DEBUG_DRAWER_DEFAULT_BUFFER_SIZE        (128 * 1024)
 #define INIT_FRAME_VERTEX_BUFFER_SIZE           (1024 * 1024)
@@ -20,7 +24,7 @@ struct Portal;
 struct Frustum;
 struct World;
 struct Room;
-struct Camera;
+class Camera;
 struct Entity;
 struct Sprite;
 struct BaseMesh;
@@ -83,24 +87,6 @@ public:
     {
         return m_debugMode;
     }
-};
-
-// Native TR blending modes.
-
-enum BlendingMode
-{
-    BM_OPAQUE,
-    BM_TRANSPARENT,
-    BM_MULTIPLY,
-    BM_SIMPLE_SHADE,
-    BM_TRANSPARENT_IGNORE_Z,
-    BM_INVERT_SRC,
-    BM_WIREFRAME,
-    BM_TRANSPARENT_ALPHA,
-    BM_INVERT_DEST,
-    BM_SCREEN,
-    BM_HIDE,
-    BM_ANIMATED_TEX
 };
 
 // Animated texture types
@@ -270,9 +256,9 @@ public:
     void renderHair(std::shared_ptr<Character> entity, const matrix4 &modelViewMatrix, const matrix4 & modelViewProjectionMatrix);
     void renderSkyBox(const matrix4& matrix);
     void renderMesh(const std::shared_ptr<BaseMesh> &mesh);
-    void renderPolygonTransparency(uint16_t &currentTransparency, const BSPFaceRef &p, const UnlitTintedShaderDescription *shader);
-    void renderBSPFrontToBack(uint16_t &currentTransparency, const std::unique_ptr<BSPNode> &root, const UnlitTintedShaderDescription *shader);
-    void renderBSPBackToFront(uint16_t &currentTransparency, const std::unique_ptr<BSPNode> &root, const UnlitTintedShaderDescription *shader);
+    void renderPolygonTransparency(loader::BlendingMode& currentTransparency, const BSPFaceRef &p, const UnlitTintedShaderDescription *shader);
+    void renderBSPFrontToBack(loader::BlendingMode& currentTransparency, const std::unique_ptr<BSPNode> &root, const UnlitTintedShaderDescription *shader);
+    void renderBSPBackToFront(loader::BlendingMode& currentTransparency, const std::unique_ptr<BSPNode> &root, const UnlitTintedShaderDescription *shader);
     void renderRoom(const Room *room, const matrix4 &matrix, const matrix4 &modelViewProjectionMatrix, const matrix4 &projection);
     void renderRoomSprites(const Room *room, const matrix4 &modelViewMatrix, const matrix4 &projectionMatrix);
 

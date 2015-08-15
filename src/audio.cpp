@@ -934,21 +934,16 @@ bool StreamTrack::Stream(ALuint buffer)
     while(size < pcm.size() - sf_info.channels + 1)
     {
         // we need to read a multiple of sf_info.channels here
+        const size_t samplesToRead = ((audio_settings.stream_buffer_size - size) / sf_info.channels) * sf_info.channels;
 #ifdef AUDIO_OPENAL_FLOAT
-        const size_t samplesToRead = (audio_settings.stream_buffer_size - size) / sizeof(ALfloat);
         const sf_count_t samplesRead = sf_read_float(snd_file, pcm.data() + size, samplesToRead);
 #else
-        const size_t samplesToRead = (audio_settings.stream_buffer_size - size) / sizeof(ALshort);
         const sf_count_t samplesRead = sf_read_short(snd_file, pcm.data() + size, samplesToRead);
 #endif
 
         if(samplesRead > 0)
         {
-#ifdef AUDIO_OPENAL_FLOAT
-            size += samplesRead * sizeof(ALfloat);
-#else
-            size += samplesRead * sizeof(ALshort);
-#endif
+            size += samplesRead;
         }
         else
         {
@@ -956,6 +951,7 @@ bool StreamTrack::Stream(ALuint buffer)
             if(error != SF_ERR_NO_ERROR)
             {
                 Audio_LogSndfileError(error);
+                return false;
             }
             else
             {
@@ -974,7 +970,7 @@ bool StreamTrack::Stream(ALuint buffer)
     if(size == 0)
         return false;
 
-    alBufferData(buffer, format, pcm.data(), size, rate);
+    alBufferData(buffer, format, pcm.data(), size * sizeof(pcm[0]), rate);
     return true;
 }
 
@@ -1567,7 +1563,7 @@ void Audio_LoadOverridedSamples(struct World *world)
                 }
                 else
                 {
-                    buffer_counter += world->audio_effects[(world->audio_map[i])].sample_count;
+                    buffer_counter += world->audio_effects[world->audio_map[i]].sample_count;
                 }
             }
         }
@@ -1866,22 +1862,20 @@ bool Audio_FillALBuffer(ALuint buf_number, SNDFILE *wavFile, Uint32 buffer_size,
  * that function have to be called every game frame.
  * @param cam - pointer to the camera structure.
  */
-void Audio_UpdateListenerByCamera(struct Camera *cam)
+void Audio_UpdateListenerByCamera(Camera *cam)
 {
     ALfloat v[6] = {
-        cam->m_viewDir[0], cam->m_viewDir[1], cam->m_viewDir[2],
-        cam->m_upDir[0], cam->m_upDir[1], cam->m_upDir[2]
+        cam->getViewDir()[0], cam->getViewDir()[1], cam->getViewDir()[2],
+        cam->getUpDir()[0], cam->getUpDir()[1], cam->getUpDir()[2]
     };
 
     alListenerfv(AL_ORIENTATION, v);
 
-    alListenerfv(AL_POSITION, cam->m_pos);
+    alListenerfv(AL_POSITION, cam->getPosition());
 
-    btVector3 v2 = cam->m_pos - cam->m_prevPos;
-    v2[3] = 1.0f / engine_frame_time;
-    v2 *= v2[3];
+    btVector3 v2 = (cam->getPosition() - cam->m_prevPos) / engine_frame_time;
     alListenerfv(AL_VELOCITY, v2);
-    cam->m_prevPos = cam->m_pos;
+    cam->m_prevPos = cam->getPosition();
 
     if(cam->m_currentRoom)
     {

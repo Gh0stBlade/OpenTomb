@@ -7,6 +7,7 @@ screen =
     fullscreen = false;
     fov = 75.0;
     debug_info = false;
+    vsync = true;
 }
 
 audio =
@@ -43,6 +44,8 @@ system =
 controls =
 {
     mouse_sensitivity = 25.0;
+    mouse_scale_x = 0.01;
+    mouse_scale_y = 0.01;
 
     use_joy = true;                 -- Use joystick
     joy_number = 0;                 -- If you have one joystick in system, it will be 0.
@@ -105,7 +108,7 @@ bind(act.lookright, KEY_RIGHT, JOY_POVRIGHT);
 
 bind(act.inventory, KEY_ESCAPE);
 bind(act.screenshot, KEY_PRINTSCREEN);
-bind(act.console, KEY_BACKQUOTE);
+bind(act.console, KEY_F12);
 bind(act.savegame, KEY_F5);
 bind(act.loadgame, KEY_F6);
 
