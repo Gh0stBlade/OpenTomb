@@ -697,7 +697,7 @@ void Render::renderRoom(const Room* room, const matrix4 &modelViewMatrix, const 
         glUseProgram(m_shaderManager->getStaticMeshShader()->program);
         for(auto sm : room->static_mesh)
         {
-            if(sm->was_rendered || !Frustum::isOBBVisibleInRoom(sm->obb, *room))
+            if(sm->was_rendered || !sm->obb.isVisibleInRoom(*room, *m_cam))
             {
                 continue;
             }
@@ -733,7 +733,7 @@ void Render::renderRoom(const Room* room, const matrix4 &modelViewMatrix, const 
                     Entity* ent = static_cast<Entity*>(cont->object);
                     if(!ent->m_wasRendered)
                     {
-                        if(Frustum::isOBBVisibleInRoom(ent->m_obb.get(), *room))
+                        if(ent->m_obb.isVisibleInRoom(*room, *m_cam))
                         {
                             renderEntity(ent, modelViewMatrix, modelViewProjectionMatrix, projection);
                         }
@@ -882,7 +882,7 @@ void Render::drawList()
     {
         if(room->mesh && !room->mesh->m_transparencyPolygons.empty())
         {
-            render_dBSP.addNewPolygonList(room->mesh->m_transparentPolygons, room->transform, { m_cam->frustum });
+            render_dBSP.addNewPolygonList(room->mesh->m_transparentPolygons, room->transform, { m_cam->frustum }, *m_cam);
         }
     }
 
@@ -891,9 +891,9 @@ void Render::drawList()
         // Add transparency polygons from static meshes (if they exists)
         for(auto sm : room->static_mesh)
         {
-            if(!sm->mesh->m_transparentPolygons.empty() && Frustum::isOBBVisibleInRoom(sm->obb, *room))
+            if(!sm->mesh->m_transparentPolygons.empty() && sm->obb.isVisibleInRoom(*room, *m_cam))
             {
-                render_dBSP.addNewPolygonList(sm->mesh->m_transparentPolygons, sm->transform, { m_cam->frustum });
+                render_dBSP.addNewPolygonList(sm->mesh->m_transparentPolygons, sm->transform, { m_cam->frustum }, *m_cam);
             }
         }
 
@@ -903,14 +903,14 @@ void Render::drawList()
             if(cont->object_type == OBJECT_ENTITY)
             {
                 Entity* ent = static_cast<Entity*>(cont->object);
-                if((ent->m_bf.animations.model->transparency_flags == MESH_HAS_TRANSPARENCY) && ent->m_visible && (Frustum::isOBBVisibleInRoom(ent->m_obb.get(), *room)))
+                if((ent->m_bf.animations.model->transparency_flags == MESH_HAS_TRANSPARENCY) && ent->m_visible && ent->m_obb.isVisibleInRoom(*room, *m_cam))
                 {
                     for(uint16_t j = 0; j < ent->m_bf.bone_tags.size(); j++)
                     {
                         if(!ent->m_bf.bone_tags[j].mesh_base->m_transparencyPolygons.empty())
                         {
                             auto tr = ent->m_transform * ent->m_bf.bone_tags[j].full_transform;
-                            render_dBSP.addNewPolygonList(ent->m_bf.bone_tags[j].mesh_base->m_transparentPolygons, tr, { m_cam->frustum });
+                            render_dBSP.addNewPolygonList(ent->m_bf.bone_tags[j].mesh_base->m_transparentPolygons, tr, { m_cam->frustum }, *m_cam);
                         }
                     }
                 }
@@ -926,7 +926,7 @@ void Render::drawList()
             if(!ent->m_bf.bone_tags[j].mesh_base->m_transparencyPolygons.empty())
             {
                 auto tr = ent->m_transform * ent->m_bf.bone_tags[j].full_transform;
-                render_dBSP.addNewPolygonList(ent->m_bf.bone_tags[j].mesh_base->m_transparentPolygons, tr, { m_cam->frustum });
+                render_dBSP.addNewPolygonList(ent->m_bf.bone_tags[j].mesh_base->m_transparentPolygons, tr, { m_cam->frustum }, *m_cam);
             }
         }
     }
@@ -973,7 +973,7 @@ void Render::drawListDebugLines()
 
     for(const Room* room : m_renderList)
     {
-        debugDrawer.drawRoomDebugLines(room, this);
+        debugDrawer.drawRoomDebugLines(room, this, *m_cam);
     }
 
     if(m_drawColl)
@@ -1001,7 +1001,7 @@ void Render::drawListDebugLines()
  * @return number of added rooms
  */
 
-int Render::processRoom(Portal *portal, const std::shared_ptr<Frustum> &frus)
+int Render::processRoom(Portal* portal, const Frustum& frus)
 {
     std::shared_ptr<Room> destination = portal->dest_room;
     std::shared_ptr<Room> current = portal->current_room;
@@ -1022,7 +1022,7 @@ int Render::processRoom(Portal *portal, const std::shared_ptr<Frustum> &frus)
             {
                 ret++;
                 addRoom(p.dest_room.get());
-                processRoom(&p, gen_frus);
+                processRoom(&p, *gen_frus);
             }
         }
     }
@@ -1038,34 +1038,35 @@ void Render::genWorldList()
         return;
     }
 
-    cleanList();                                                         // clear old render list
+    cleanList();                              // clear old render list
     debugDrawer.reset();
     //cam->frustum->next = NULL;
 
-    Room* curr_room = Room_FindPosCogerrence(m_cam->getPosition(), m_cam->m_currentRoom);                // find room that contains camera
+    // find room that contains camera
+    Room* curr_room = Room_FindPosCogerrence(m_cam->getPosition(), m_cam->m_currentRoom);
 
-    m_cam->m_currentRoom = curr_room;                                     // set camera's cuttent room pointer
-    if(curr_room != nullptr)                                                       // camera located in some room
+    m_cam->m_currentRoom = curr_room;         // set camera's cuttent room pointer
+    if(curr_room != nullptr)                  // camera located in some room
     {
-        curr_room->frustum.clear();                                              // room with camera inside has no frustums!
+        curr_room->frustum.clear();           // room with camera inside has no frustums!
         curr_room->max_path = 0;
-        addRoom(curr_room);                                              // room with camera inside adds to the render list immediately
-        for(Portal& p : curr_room->portals)                   // go through all start room portals
+        addRoom(curr_room);                   // room with camera inside adds to the render list immediately
+        for(Portal& p : curr_room->portals)   // go through all start room portals
         {
             auto last_frus = Frustum::portalFrustumIntersect(&p, m_cam->frustum, this);
             if(last_frus)
             {
-                addRoom(p.dest_room.get());                                   // portal destination room
-                last_frus->parents_count = 1;                                   // created by camera
-                processRoom(&p, last_frus);                               // next start reccursion algorithm
+                addRoom(p.dest_room.get());   // portal destination room
+                last_frus->parents_count = 1; // created by camera
+                processRoom(&p, *last_frus);  // next start reccursion algorithm
             }
         }
     }
-    else                                                                        // camera is out of all rooms
+    else if(control_states.noclip)  // camera is out of all rooms AND noclip is on
     {
         for(auto r : m_world->rooms)
         {
-            if(m_cam->frustum->isAABBVisible(r->bb_min, r->bb_max))
+            if(m_cam->frustum.isAABBVisible(r->bb_min, r->bb_max, *m_cam))
             {
                 addRoom(r.get());
             }
@@ -1098,7 +1099,6 @@ void Render::setWorld(World *world)
 // Render debug primitives.
 
 RenderDebugDrawer::RenderDebugDrawer()
-    : m_obb(new OBB())
 {
 }
 
@@ -1237,15 +1237,15 @@ void RenderDebugDrawer::drawPortal(const Portal& p)
 
 void RenderDebugDrawer::drawBBox(const btVector3& bb_min, const btVector3& bb_max, const btTransform *transform)
 {
-    m_obb->rebuild(bb_min, bb_max);
-    m_obb->transform = transform;
-    m_obb->doTransform();
-    drawOBB(m_obb.get());
+    m_obb.rebuild(bb_min, bb_max);
+    m_obb.transform = transform;
+    m_obb.doTransform();
+    drawOBB(m_obb);
 }
 
-void RenderDebugDrawer::drawOBB(OBB *obb)
+void RenderDebugDrawer::drawOBB(const OBB& obb)
 {
-    struct Polygon *p = obb->polygons;
+    const Polygon *p = obb.polygons;
     addLine(p->vertices[0].position, (p + 1)->vertices[0].position);
     addLine(p->vertices[1].position, (p + 1)->vertices[3].position);
     addLine(p->vertices[2].position, (p + 1)->vertices[2].position);
@@ -1320,7 +1320,7 @@ void RenderDebugDrawer::drawEntityDebugLines(Entity* entity, Render* render)
     if(render->m_drawBoxes)
     {
         debugDrawer.setColor(0.0, 0.0, 1.0);
-        debugDrawer.drawOBB(entity->m_obb.get());
+        debugDrawer.drawOBB(entity->m_obb);
     }
 
     if(render->m_drawAxis)
@@ -1345,7 +1345,7 @@ void RenderDebugDrawer::drawSectorDebugLines(RoomSector *rs)
     drawBBox(bb_min, bb_max, nullptr);
 }
 
-void RenderDebugDrawer::drawRoomDebugLines(const Room* room, Render* render)
+void RenderDebugDrawer::drawRoomDebugLines(const Room* room, Render* render, const Camera& cam)
 {
     if(render->m_drawRoomBoxes)
     {
@@ -1382,7 +1382,7 @@ void RenderDebugDrawer::drawRoomDebugLines(const Room* room, Render* render)
 
     for(auto sm : room->static_mesh)
     {
-        if(sm->was_rendered_lines || !Frustum::isOBBVisibleInRoom(sm->obb, *room) ||
+        if(sm->was_rendered_lines || sm->obb.isVisibleInRoom(*room, cam) ||
            (sm->hide && !render->m_drawDummyStatics))
         {
             continue;
@@ -1413,7 +1413,7 @@ void RenderDebugDrawer::drawRoomDebugLines(const Room* room, Render* render)
                 Entity* ent = static_cast<Entity*>(cont->object);
                 if(!ent->m_wasRenderedLines)
                 {
-                    if(Frustum::isOBBVisibleInRoom(ent->m_obb.get(), *room))
+                    if(ent->m_obb.isVisibleInRoom(*room, cam))
                     {
                         debugDrawer.drawEntityDebugLines(ent, render);
                     }

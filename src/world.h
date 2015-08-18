@@ -136,13 +136,13 @@
 // Sector material specifies audio response from character footsteps, as well as
 // footstep texture option, plus possible vehicle physics difference in the future.
 
-#define SECTOR_MATERIAL_MUD         0   // Classic one, TR1-2.
+#define SECTOR_MATERIAL_MUD         0
 #define SECTOR_MATERIAL_SNOW        1
 #define SECTOR_MATERIAL_SAND        2
 #define SECTOR_MATERIAL_GRAVEL      3
 #define SECTOR_MATERIAL_ICE         4
 #define SECTOR_MATERIAL_WATER       5
-#define SECTOR_MATERIAL_STONE       6
+#define SECTOR_MATERIAL_STONE       6   // Classic one, TR1-2.
 #define SECTOR_MATERIAL_WOOD        7
 #define SECTOR_MATERIAL_METAL       8
 #define SECTOR_MATERIAL_MARBLE      9
@@ -318,7 +318,7 @@ struct Room : public Object
     uint16_t                    sectors_y;
     std::vector<RoomSector> sectors;
 
-    std::vector<std::shared_ptr<Frustum>> frustum;
+    std::vector<std::unique_ptr<Frustum>> frustum;
     uint16_t                    max_path;                                       // maximum number of portals from camera to this room
 
     std::vector<std::shared_ptr<Room>> near_room_list;
@@ -355,6 +355,8 @@ struct Room : public Object
 
     RoomSector* getSectorRaw(const btVector3 &pos);
     RoomSector* getSectorXYZ(const btVector3 &pos);
+
+    void genMesh(World *world, size_t room_index, const std::unique_ptr<loader::Level>& tr);
 };
 
 struct World

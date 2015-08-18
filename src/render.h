@@ -19,6 +19,7 @@
 #define INIT_FRAME_VERTEX_BUFFER_SIZE           (1024 * 1024)
 
 #define STENCIL_FRUSTUM 1
+#include "obb.h"
 
 struct Portal;
 struct Frustum;
@@ -41,7 +42,7 @@ class RenderDebugDrawer : public btIDebugDraw
     std::array<GLfloat, 3> m_color{ {0,0,0} };
     std::vector<std::array<GLfloat, 3>> m_buffer;
 
-    std::unique_ptr<OBB> m_obb;
+    OBB m_obb;
 
     void addLine(const std::array<GLfloat, 3> &start, const std::array<GLfloat, 3> &end);
     void addLine(const btVector3& start, const btVector3& end);
@@ -70,12 +71,12 @@ public:
     void drawPortal(const Portal &p);
     void drawFrustum(const Frustum &f);
     void drawBBox(const btVector3 &bb_min, const btVector3 &bb_max, const btTransform *transform);
-    void drawOBB(OBB *obb);
+    void drawOBB(const OBB& obb);
     void drawMeshDebugLines(const std::shared_ptr<BaseMesh> &mesh, const btTransform& transform, const std::vector<btVector3> &overrideVertices, const std::vector<btVector3> &overrideNormals, Render* render);
     void drawSkeletalModelDebugLines(SSBoneFrame *bframe, const btTransform& transform, Render *render);
     void drawEntityDebugLines(Entity *entity, Render *render);
     void drawSectorDebugLines(RoomSector *rs);
-    void drawRoomDebugLines(const Room *room, Render *render);
+    void drawRoomDebugLines(const Room *room, Render *render, const Camera& cam);
 
     // bullet's debug interface
     virtual void   drawLine(const btVector3& from, const btVector3& to, const btVector3 &color) override;
@@ -118,7 +119,7 @@ struct RenderSettings
     bool      use_gl3 = false;
 };
 
-class ShaderManager;
+class  ShaderManager;
 struct BSPNode;
 struct UnlitTintedShaderDescription;
 struct SSBoneFrame;
@@ -262,7 +263,7 @@ public:
     void renderRoom(const Room *room, const matrix4 &matrix, const matrix4 &modelViewProjectionMatrix, const matrix4 &projection);
     void renderRoomSprites(const Room *room, const matrix4 &modelViewMatrix, const matrix4 &projectionMatrix);
 
-    int processRoom(Portal *portal, const std::shared_ptr<Frustum> &frus);
+    int processRoom(Portal* portal, const Frustum& frus);
 
 private:
     const LitShaderDescription *setupEntityLight(Entity *entity, const matrix4 &modelViewMatrix, bool skin);

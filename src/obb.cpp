@@ -7,12 +7,14 @@
 #include "entity.h"
 #include "polygon.h"
 #include "vmath.h"
+#include "engine.h"
+#include "frustum.h"
 
 void OBB::rebuild(const btVector3& bb_min, const btVector3& bb_max)
 {
     extent = (bb_max - bb_min) / 2;
     base_centre = (bb_min + bb_max) / 2;
-    r = extent.length();
+    radius = extent.length();
 
     struct Polygon *p = base_polygons;
     // UP
@@ -155,12 +157,12 @@ void OBB::doTransform()
 int OBB_OBB_Test(const Entity& e1, const Entity& e2, btScalar overlap)
 {
     //translation, in parent frame
-    auto v = e2.m_obb->centre - e1.m_obb->centre;
+    auto v = e2.m_obb.centre - e1.m_obb.centre;
     //translation, in A's frame
     btVector3 T = e1.m_transform.getBasis() * v;
 
-    btVector3 a = e1.m_obb->extent * overlap;
-    btVector3 b = e2.m_obb->extent * overlap;
+    btVector3 a = e1.m_obb.extent * overlap;
+    btVector3 b = e2.m_obb.extent * overlap;
 
     //B's basis with respect to A's local frame
     btScalar R[3][3];
@@ -301,4 +303,39 @@ int OBB_OBB_Test(const Entity& e1, const Entity& e2, btScalar overlap)
     /*no separating axis found,
     the two boxes overlap */
     return 1;
+}
+
+bool OBB::isVisibleInRoom(const Room& room, const Camera& cam)
+{
+    if(room.frustum.empty())                                                    // There's no active frustum in room, using camera frustum instead.
+    {
+        bool ins = true;                                                        // Let's assume camera is inside OBB.
+        for(int i = 0; i < 6; i++)
+        {
+            auto t = polygons[i].plane.distance(engine_camera.getPosition());
+            if((t > 0.0) && engine_camera.frustum.isPolyVisible(&polygons[i], cam))
+            {
+                return true;
+            }
+            if(ins && (t > 0.0))                                                // Testing if POV is inside OBB or not.
+            {
+                ins = false;                                                    // Even single failed test means that camera is outside OBB.
+            }
+        }
+        return ins;                                                             // If camera is inside object's OBB, then object is visible.
+    }
+
+    for(const auto& frustum : room.frustum)
+    {
+        for(int i = 0; i < 6; i++)
+        {
+            auto t = polygons[i].plane.distance(cam.getPosition());
+            if((t > 0.0) && frustum->isPolyVisible(&polygons[i], cam))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
