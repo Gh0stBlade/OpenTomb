@@ -11,6 +11,7 @@
 #include "console.h"
 #include "engine.h"
 #include "game.h"
+#include "inventory.h"
 #include "script.h"
 #include "system.h"
 
@@ -584,35 +585,35 @@ void Controls_DebugKeys(int button, int state)
             case SDLK_RETURN:
                 if(main_inventory_manager)
                 {
-                    main_inventory_manager->send(gui_InventoryManager::INVENTORY_ACTIVATE);
+                    main_inventory_manager->send(InventoryManager::InventoryState::Activate);
                 }
                 break;
 
             case SDLK_UP:
                 if(main_inventory_manager)
                 {
-                    main_inventory_manager->send(gui_InventoryManager::INVENTORY_UP);
+                    main_inventory_manager->send(InventoryManager::InventoryState::Up);
                 }
                 break;
 
             case SDLK_DOWN:
                 if(main_inventory_manager)
                 {
-                    main_inventory_manager->send(gui_InventoryManager::INVENTORY_DOWN);
+                    main_inventory_manager->send(InventoryManager::InventoryState::Down);
                 }
                 break;
 
             case SDLK_LEFT:
                 if(main_inventory_manager)
                 {
-                    main_inventory_manager->send(gui_InventoryManager::INVENTORY_R_LEFT);
+                    main_inventory_manager->send(InventoryManager::InventoryState::RLeft);
                 }
                 break;
 
             case SDLK_RIGHT:
                 if(main_inventory_manager)
                 {
-                    main_inventory_manager->send(gui_InventoryManager::INVENTORY_R_RIGHT);
+                    main_inventory_manager->send(InventoryManager::InventoryState::RRight);
                 }
                 break;
 

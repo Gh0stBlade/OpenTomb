@@ -3,55 +3,54 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <AL/al.h>
-#include <AL/alc.h>
-
-#include "LuaState.h"
-
-#include "console.h"
 #include "engine.h"
 #include "gui.h"
 #include "script.h"
 #include "world.h"
 
-gameflow_manager_s gameflow_manager;
+Gameflow Gameflow_Manager;
 
-void Gameflow_Init()
+/*
+    Initialisation, sets all actions to GF_NOENTRY (-1)
+*/
+void Gameflow::Init()
 {
-    for(int i = 0; i < TR_GAMEFLOW_MAX_ACTIONS; i++)
+    for(int i = 0; i < GF_MAX_ACTIONS; i++)
     {
-        gameflow_manager.Actions[i].opcode = TR_GAMEFLOW_NOENTRY;
+        m_actions[i].opcode = GF_NOENTRY;
     }
 }
 
-void Gameflow_Do()
+/*
+    Process next gameflow action from action list if m_nextAction true
+*/
+
+void Gameflow::Do()
 {
-    if(!gameflow_manager.NextAction)
+    if(!m_nextAction)
+    {
         return;
+    }
 
     bool completed = true;
 
-    for(int i = 0; i < TR_GAMEFLOW_MAX_ACTIONS; i++)
+    for(int i = 0; i < GF_MAX_ACTIONS; i++)
     {
-        if(gameflow_manager.Actions[i].opcode == TR_GAMEFLOW_NOENTRY) continue;
         completed = false;
 
-        switch(gameflow_manager.Actions[i].opcode)
+        switch(m_actions[i].opcode)
         {
-            case TR_GAMEFLOW_OP_LEVELCOMPLETE:
+            case GF_OP_LEVELCOMPLETE:
                 // Switch level only when fade is complete AND all streams / sounds are unloaded!
-                if((Gui_FadeCheck(FADER_LOADSCREEN) == GUI_FADER_STATUS_COMPLETE) && (!Audio_IsTrackPlaying()))
+                if((Gui_FadeCheck(FaderType::LoadScreen) == FaderStatus::Complete) && (!Audio_IsTrackPlaying()))
                 {
-                    const char* levelName;
-                    const char* levelPath;
-                    lua::tie(levelPath, levelName, gameflow_manager.CurrentLevelID) = engine_lua["getNextLevel"](int(gameflow_manager.CurrentGameID), int(gameflow_manager.CurrentLevelID), int(gameflow_manager.Actions[i].operand));
-                    gameflow_manager.CurrentLevelName = levelName;
-                    gameflow_manager.CurrentLevelPath = levelPath;
-                    Engine_LoadMap(gameflow_manager.CurrentLevelPath);
-                    gameflow_manager.Actions[i].opcode = TR_GAMEFLOW_NOENTRY;
+                    lua::tie(m_currentLevelPath, m_currentLevelName, m_currentLevelID) = engine_lua["getNextLevel"](int(m_currentGameID), int(m_currentLevelID), int(m_actions[i].operand));
+                    Engine_LoadMap(m_currentLevelPath);
+                    m_actions[i].opcode = GF_NOENTRY;
                 }
                 else
                 {
+                    ///@FIXME Gameflow has NOTHING to do with faders! this should all be done elsewhere!
                     // If fadeout is in the process, we block level loading until it is complete.
                     // It is achieved by not resetting action marker and exiting the function instead.
                     continue;
@@ -59,25 +58,29 @@ void Gameflow_Do()
                 break;
 
             default:
-                gameflow_manager.Actions[i].opcode = TR_GAMEFLOW_NOENTRY;
-                break;  ///@FIXME: Implement all other gameflow opcodes here!
+                m_actions[i].opcode = GF_NOENTRY;///?
+                break;
         }   // end switch(gameflow_manager.Operand)
     }
 
-    if(completed) gameflow_manager.NextAction = false;    // Reset action marker!
+    if(completed) m_nextAction = false;    // Reset action marker!
 }
 
-bool Gameflow_Send(int opcode, int operand)
-{
-    for(int i = 0; i < TR_GAMEFLOW_MAX_ACTIONS; i++)
-    {
-        if(gameflow_manager.Actions[i].opcode == opcode) return false;
+/*
+    Send opcode and operand to gameflow manager.
+    Note: It will be added at the end of actions list.
+*/
 
-        if(gameflow_manager.Actions[i].opcode == TR_GAMEFLOW_NOENTRY)
+///@CRITICAL - The order MUST BE MAINTAINED.
+bool Gameflow::Send(int opcode, int operand)
+{
+    for(int i = 0; i < GF_MAX_ACTIONS; i++)
+    {
+        if(m_actions[i].opcode == GF_NOENTRY)///@FIXME But what if [ -1, 2, 3 -1]? We're essentially favouring the first -1 which is WRONG.
         {
-            gameflow_manager.Actions[i].opcode = opcode;
-            gameflow_manager.Actions[i].operand = operand;
-            gameflow_manager.NextAction = true;
+            m_actions[i].opcode = opcode;
+            m_actions[i].operand = operand;
+            m_nextAction = true;///@FIXME No, we shouldn't need to modify this here.
             return true;
         }
     }

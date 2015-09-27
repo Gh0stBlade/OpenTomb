@@ -323,7 +323,7 @@ int Game_Save(const char* name)
         return 0;
     }
 
-    fprintf(f, "loadMap(\"%s\", %d, %d);\n", gameflow_manager.CurrentLevelPath.c_str(), gameflow_manager.CurrentGameID, gameflow_manager.CurrentLevelID);
+    fprintf(f, "loadMap(\"%s\", %d, %d);\n", Gameflow_Manager.getLevelPath().c_str(), Gameflow_Manager.getGameID(), Gameflow_Manager.getLevelID());
 
     // Save flipmap and flipped room states.
 
@@ -783,19 +783,19 @@ void Game_Frame(btScalar time)
     if(!ConsoleInfo::instance().isVisible() && control_states.gui_inventory && main_inventory_manager)
     {
         if((is_character) &&
-           (main_inventory_manager->getCurrentState() == gui_InventoryManager::INVENTORY_DISABLED))
+           (main_inventory_manager->getCurrentState() == InventoryManager::InventoryState::Disabled))
         {
             main_inventory_manager->setInventory(&engine_world.character->m_inventory);
-            main_inventory_manager->send(gui_InventoryManager::INVENTORY_OPEN);
+            main_inventory_manager->send(InventoryManager::InventoryState::Open);
         }
-        if(main_inventory_manager->getCurrentState() == gui_InventoryManager::INVENTORY_IDLE)
+        if(main_inventory_manager->getCurrentState() == InventoryManager::InventoryState::Idle)
         {
-            main_inventory_manager->send(gui_InventoryManager::INVENTORY_CLOSE);
+            main_inventory_manager->send(InventoryManager::InventoryState::Closed);
         }
     }
 
     // If console or inventory is active, only thing to update is audio.
-    if(ConsoleInfo::instance().isVisible() || main_inventory_manager->getCurrentState() != gui_InventoryManager::INVENTORY_DISABLED)
+    if(ConsoleInfo::instance().isVisible() || main_inventory_manager->getCurrentState() != InventoryManager::InventoryState::Disabled)
     {
         if(game_logic_time >= GAME_LOGIC_REFRESH_INTERVAL)
         {
@@ -895,7 +895,7 @@ void Game_Prepare()
     // Set gameflow parameters to default.
     // Reset secret trigger map.
 
-    memset(gameflow_manager.SecretsTriggerMap, 0, sizeof(gameflow_manager.SecretsTriggerMap));
+    memset(Gameflow_Manager.SecretsTriggerMap, 0, sizeof(Gameflow_Manager.SecretsTriggerMap));
 }
 
 void Game_LevelTransition(uint16_t level_index)
@@ -903,8 +903,8 @@ void Game_LevelTransition(uint16_t level_index)
     char file_path[MAX_ENGINE_PATH];
 
     engine_lua.getLoadingScreen(level_index, file_path);
-    Gui_FadeAssignPic(FADER_LOADSCREEN, file_path);
-    Gui_FadeStart(FADER_LOADSCREEN, GUI_FADER_DIR_OUT);
+    Gui_FadeAssignPic(FaderType::LoadScreen, file_path);
+    Gui_FadeStart(FaderType::LoadScreen, FaderDir::Out);
 
     Audio_EndStreams();
 }

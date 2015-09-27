@@ -11,7 +11,7 @@ ScreenInfo     screen_info;
 SystemSettings system_settings;
 
 
-gui_text_line_t system_fps;
+TextLine system_fps;
 
 // =======================================================================
 // General routines
@@ -36,11 +36,11 @@ void Sys_Init()
 
     system_fps.X = (10.0);
     system_fps.Y = (10.0);
-    system_fps.Xanchor = GUI_ANCHOR_HOR_RIGHT;
-    system_fps.Yanchor = GUI_ANCHOR_VERT_BOTTOM;
+    system_fps.Xanchor = HorizontalAnchor::Right;
+    system_fps.Yanchor = VerticalAnchor::Bottom;
 
-    system_fps.font_id = FONT_PRIMARY;
-    system_fps.style_id = FONTSTYLE_MENU_TITLE;
+    system_fps.font_id = FontType::Primary;
+    system_fps.style_id = FontStyle::MenuTitle;
 
     system_fps.show = true;
 

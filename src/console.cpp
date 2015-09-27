@@ -40,7 +40,7 @@ void ConsoleInfo::init()
 
 void ConsoleInfo::initFonts()
 {
-    m_font = FontManager->GetFont(FONT_CONSOLE);
+    m_font = fontManager->GetFont(FontType::Console);
     setLineInterval(m_spacing);
 }
 
@@ -58,7 +58,7 @@ void ConsoleInfo::initGlobals() {
 
 void ConsoleInfo::setLineInterval(float interval)
 {
-    if(!inited || !FontManager ||
+    if(!inited || !fontManager ||
        (interval < CON_MIN_LINE_INTERVAL) || (interval > CON_MAX_LINE_INTERVAL))
     {
         return; // nothing to do
@@ -79,7 +79,7 @@ void ConsoleInfo::setLineInterval(float interval)
 
 void ConsoleInfo::draw()
 {
-    if(!FontManager || !inited || !m_isVisible)
+    if(!fontManager || !inited || !m_isVisible)
         return;
 
     drawBackground();
@@ -101,7 +101,7 @@ void ConsoleInfo::draw()
     size_t n = 0;
     for(const Line& line : m_lines)
     {
-        GLfloat *col = FontManager->GetFontStyle(line.styleId)->real_color;
+        GLfloat *col = fontManager->GetFontStyle(line.styleId)->real_color;
         y += m_lineHeight;
         std::copy(col, col + 4, m_font->gl_font_color);
         glf_render_str(m_font, static_cast<GLfloat>(x), static_cast<GLfloat>(y), line.text.c_str());
@@ -109,7 +109,7 @@ void ConsoleInfo::draw()
         if(n >= m_visibleLines)
             break;
     }
-    GLfloat *col = FontManager->GetFontStyle(FONTSTYLE_CONSOLE_INFO)->real_color;
+    GLfloat *col = fontManager->GetFontStyle(FontStyle::ConsoleInfo)->real_color;
     std::copy(col, col + 4, m_font->gl_font_color);
     glf_render_str(m_font, static_cast<GLfloat>(x), static_cast<GLfloat>(m_cursorY) + m_lineHeight, m_editingLine.c_str());
 }
@@ -187,7 +187,7 @@ void ConsoleInfo::edit(int key, int mod)
     if(key == SDLK_RETURN)
     {
         addLog(m_editingLine);
-        addLine(std::string("> ") + m_editingLine, FONTSTYLE_CONSOLE_INFO);
+        addLine(std::string("> ") + m_editingLine, FontStyle::ConsoleInfo);
         Engine_ExecCmd(m_editingLine.c_str());
         m_editingLine.clear();
         m_cursorPos = 0;
@@ -298,9 +298,9 @@ void ConsoleInfo::edit(int key, int mod)
                     if(common.empty())
                     {
                         // nothing common, print possible completions
-                        addLine("Possible completions:", font_Style::FONTSTYLE_CONSOLE_INFO);
+                        addLine("Possible completions:", FontStyle::ConsoleInfo);
                         for(const std::string& term : found)
-                            addLine(std::string("* ") + needle + term, font_Style::FONTSTYLE_CONSOLE_INFO);
+                            addLine(std::string("* ") + needle + term, FontStyle::ConsoleInfo);
                     }
                     else
                     {
@@ -355,7 +355,7 @@ void ConsoleInfo::addLog(const std::string &text)
     }
 }
 
-void ConsoleInfo::addLine(const std::string &text, font_Style style)
+void ConsoleInfo::addLine(const std::string &text, FontStyle style)
 {
     if(inited && !text.empty())
     {
@@ -365,7 +365,7 @@ void ConsoleInfo::addLine(const std::string &text, font_Style style)
     }
 }
 
-void ConsoleInfo::addText(const std::string &text, font_Style style)
+void ConsoleInfo::addText(const std::string &text, FontStyle style)
 {
     size_t pos = 0;
     while(pos != std::string::npos)
@@ -388,7 +388,7 @@ void ConsoleInfo::printf(const char *fmt, ...)
     vsnprintf(buf, 4096, fmt, argptr);
     buf[4096 - 1] = 0;
     va_end(argptr);
-    addLine(buf, FONTSTYLE_CONSOLE_NOTIFY);
+    addLine(buf, FontStyle::ConsoleNotify);
 }
 
 void ConsoleInfo::warning(int warn_string_index, ...)
@@ -403,7 +403,7 @@ void ConsoleInfo::warning(int warn_string_index, ...)
     vsnprintf(buf, 4096, static_cast<const char*>(fmt), argptr);
     buf[4096 - 1] = 0;
     va_end(argptr);
-    addLine(buf, FONTSTYLE_CONSOLE_WARNING);
+    addLine(buf, FontStyle::ConsoleWarning);
 }
 
 void ConsoleInfo::notify(int notify_string_index, ...)
@@ -418,7 +418,7 @@ void ConsoleInfo::notify(int notify_string_index, ...)
     vsnprintf(buf, 4096, static_cast<const char*>(fmt), argptr);
     buf[4096 - 1] = 0;
     va_end(argptr);
-    addLine(buf, FONTSTYLE_CONSOLE_NOTIFY);
+    addLine(buf, FontStyle::ConsoleNotify);
 }
 
 void ConsoleInfo::clean()

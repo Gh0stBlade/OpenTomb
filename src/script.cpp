@@ -522,18 +522,18 @@ void lua_RemoveEntityRagdoll(int ent_id)
 
 bool lua_GetSecretStatus(int secret_number)
 {
-    if((secret_number > TR_GAMEFLOW_MAX_SECRETS) || (secret_number < 0))
+    if((secret_number > GF_MAX_SECRETS) || (secret_number < 0))
         return false;   // No such secret - return
 
-    return gameflow_manager.SecretsTriggerMap[secret_number];
+    return Gameflow_Manager.SecretsTriggerMap[secret_number];
 }
 
 void lua_SetSecretStatus(int secret_number, bool status)
 {
-    if((secret_number > TR_GAMEFLOW_MAX_SECRETS) || (secret_number < 0))
+    if((secret_number > GF_MAX_SECRETS) || (secret_number < 0))
 		return;   // No such secret - return
 
-    gameflow_manager.SecretsTriggerMap[secret_number] = status;
+    Gameflow_Manager.SecretsTriggerMap[secret_number] = status;
 }
 
 bool lua_GetActionState(int act)
@@ -580,9 +580,9 @@ void script::MainEngine::bindKey(int act, int primary, lua::Value secondary)
 
 void lua_AddFont(int index, const char* path, uint32_t size)
 {
-    if(!FontManager->AddFont(static_cast<font_Type>(index), size, path))
+    if(!fontManager->AddFont(static_cast<FontType>(index), size, path))
     {
-        ConsoleInfo::instance().warning(SYSWARN_CANT_CREATE_FONT, FontManager->GetFontCount(), GUI_MAX_FONTS);
+        ConsoleInfo::instance().warning(SYSWARN_CANT_CREATE_FONT, fontManager->GetFontCount(), MaxFonts);
     }
 }
 
@@ -592,19 +592,19 @@ void lua_AddFontStyle(int style_index,
                       float rect_R, float rect_G, float rect_B, float rect_A,
                       bool hide)
 {
-    if(!FontManager->AddFontStyle(static_cast<font_Style>(style_index),
+    if(!fontManager->AddFontStyle(static_cast<FontStyle>(style_index),
                                   color_R, color_G, color_B, color_A,
                                   shadowed, fading,
                                   rect, rect_border, rect_R, rect_G, rect_B, rect_A,
                                   hide))
     {
-        ConsoleInfo::instance().warning(SYSWARN_CANT_CREATE_STYLE, FontManager->GetFontStyleCount(), GUI_MAX_FONTSTYLES);
+        ConsoleInfo::instance().warning(SYSWARN_CANT_CREATE_STYLE, fontManager->GetFontStyleCount(), FontStyle::Sentinel);
     }
 }
 
 void lua_DeleteFont(int fontindex)
 {
-    if(!FontManager->RemoveFont(static_cast<font_Type>(fontindex)))
+    if(!fontManager->RemoveFont(static_cast<FontType>(fontindex)))
     {
         ConsoleInfo::instance().warning(SYSWARN_CANT_REMOVE_FONT);
     }
@@ -612,7 +612,7 @@ void lua_DeleteFont(int fontindex)
 
 void lua_DeleteFontStyle(int styleindex)
 {
-    if(!FontManager->RemoveFontStyle(static_cast<font_Style>(styleindex)))
+    if(!fontManager->RemoveFontStyle(static_cast<FontStyle>(styleindex)))
     {
         ConsoleInfo::instance().warning(SYSWARN_CANT_REMOVE_STYLE);
     }
@@ -679,7 +679,7 @@ int lua_GetItemsCount(int entity_id, int item_id)
 
 void lua_CreateBaseItem(int item_id, int model_id, int world_model_id, int type, int count, const char* name)
 {
-    engine_world.createItem(item_id, model_id, world_model_id, type, count, name ? name : std::string());
+    engine_world.createItem(item_id, model_id, world_model_id, static_cast<MenuItemType>(type), count, name ? name : std::string());
 }
 
 void lua_DeleteBaseItem(int id)
@@ -2380,7 +2380,7 @@ void lua_CamShake(float power, float time, lua::Value id)
 
 void lua_FlashSetup(int alpha, int R, int G, int B, uint16_t fadeinSpeed, uint16_t fadeoutSpeed)
 {
-    Gui_FadeSetup(FADER_EFFECT,
+    Gui_FadeSetup(FaderType::Effect,
                   alpha,
                   R, G, B,
                   loader::BlendingMode::Multiply,
@@ -2389,22 +2389,22 @@ void lua_FlashSetup(int alpha, int R, int G, int B, uint16_t fadeinSpeed, uint16
 
 void lua_FlashStart()
 {
-    Gui_FadeStart(FADER_EFFECT, GUI_FADER_DIR_TIMED);
+    Gui_FadeStart(FaderType::Effect, FaderDir::Timed);
 }
 
 void lua_FadeOut()
 {
-    Gui_FadeStart(FADER_BLACK, GUI_FADER_DIR_OUT);
+    Gui_FadeStart(FaderType::Black, FaderDir::Out);
 }
 
 void lua_FadeIn()
 {
-    Gui_FadeStart(FADER_BLACK, GUI_FADER_DIR_IN);
+    Gui_FadeStart(FaderType::Black, FaderDir::In);
 }
 
 bool lua_FadeCheck()
 {
-    return Gui_FadeCheck(FADER_BLACK);
+    return Gui_FadeCheck(FaderType::Black) != FaderStatus::Idle;
 }
 
 // General gameplay functions
@@ -2505,7 +2505,7 @@ void lua_StopSound(uint32_t id, lua::Value ent_id)
 
 int lua_GetLevel()
 {
-    return gameflow_manager.CurrentLevelID;
+    return Gameflow_Manager.getLevelID();
 }
 
 void lua_SetLevel(int id)
@@ -2513,42 +2513,42 @@ void lua_SetLevel(int id)
     ConsoleInfo::instance().notify(SYSNOTE_CHANGING_LEVEL, id);
 
     Game_LevelTransition(id);
-    Gameflow_Send(TR_GAMEFLOW_OP_LEVELCOMPLETE, id);    // Next level
+    Gameflow_Manager.Send(GF_OP_LEVELCOMPLETE, id);    // Next level
 }
 
 void lua_SetGame(int gameId, lua::Value levelId)
 {
-    gameflow_manager.CurrentGameID = gameId;
+    Gameflow_Manager.setGameID(gameId);
     if(!levelId.is<lua::Nil>() && levelId >= 0)
-        gameflow_manager.CurrentLevelID = levelId;
+        Gameflow_Manager.setLevelID(levelId);
 
-    const char* str = engine_lua["getTitleScreen"](int(gameflow_manager.CurrentGameID));
-    Gui_FadeAssignPic(FADER_LOADSCREEN, str);
-    Gui_FadeStart(FADER_LOADSCREEN, GUI_FADER_DIR_OUT);
+    const char* str = engine_lua["getTitleScreen"](int(Gameflow_Manager.getGameID()));
+    Gui_FadeAssignPic(FaderType::LoadScreen, str);
+    Gui_FadeStart(FaderType::LoadScreen, FaderDir::Out);
 
-    ConsoleInfo::instance().notify(SYSNOTE_CHANGING_GAME, gameflow_manager.CurrentGameID);
-    Game_LevelTransition(gameflow_manager.CurrentLevelID);
-    Gameflow_Send(TR_GAMEFLOW_OP_LEVELCOMPLETE, gameflow_manager.CurrentLevelID);
+    ConsoleInfo::instance().notify(SYSNOTE_CHANGING_GAME, Gameflow_Manager.getGameID());
+    Game_LevelTransition(Gameflow_Manager.getLevelID());
+    Gameflow_Manager.Send(GF_OP_LEVELCOMPLETE, Gameflow_Manager.getLevelID());
 }
 
 void lua_LoadMap(const char* mapName, lua::Value gameId, lua::Value mapId)
 {
     ConsoleInfo::instance().notify(SYSNOTE_LOADING_MAP, mapName);
 
-    if(mapName && mapName != gameflow_manager.CurrentLevelPath)
+    if(mapName && mapName != Gameflow_Manager.getLevelPath())
     {
         if(gameId.is<lua::Integer>() && gameId >= 0)
         {
-            gameflow_manager.CurrentGameID = static_cast<int>(gameId);
+            Gameflow_Manager.setGameID(static_cast<int>(gameId));
         }
         if(mapId.is<lua::Integer>() && mapId >= 0)
         {
-            gameflow_manager.CurrentLevelID = mapId;
+            Gameflow_Manager.setLevelID(mapId);
         }
         char file_path[MAX_ENGINE_PATH];
-        engine_lua.getLoadingScreen(gameflow_manager.CurrentLevelID, file_path);
-        Gui_FadeAssignPic(FADER_LOADSCREEN, file_path);
-        Gui_FadeStart(FADER_LOADSCREEN, GUI_FADER_DIR_IN);
+        engine_lua.getLoadingScreen(Gameflow_Manager.getLevelID(), file_path);
+        Gui_FadeAssignPic(FaderType::LoadScreen, file_path);
+        Gui_FadeStart(FaderType::LoadScreen, FaderDir::In);
         Engine_LoadMap(mapName);
     }
 }
@@ -3156,25 +3156,25 @@ void ScriptEngine::exposeConstants()
 
     EXPOSE_C(M_PI);
 
-    EXPOSE_CC(FONTSTYLE_CONSOLE_INFO);
-    EXPOSE_CC(FONTSTYLE_CONSOLE_WARNING);
-    EXPOSE_CC(FONTSTYLE_CONSOLE_EVENT);
-    EXPOSE_CC(FONTSTYLE_CONSOLE_NOTIFY);
-    EXPOSE_CC(FONTSTYLE_MENU_TITLE);
-    EXPOSE_CC(FONTSTYLE_MENU_HEADING1);
-    EXPOSE_CC(FONTSTYLE_MENU_HEADING2);
-    EXPOSE_CC(FONTSTYLE_MENU_ITEM_ACTIVE);
-    EXPOSE_CC(FONTSTYLE_MENU_ITEM_INACTIVE);
-    EXPOSE_CC(FONTSTYLE_MENU_CONTENT);
-    EXPOSE_CC(FONTSTYLE_STATS_TITLE);
-    EXPOSE_CC(FONTSTYLE_STATS_CONTENT);
-    EXPOSE_CC(FONTSTYLE_NOTIFIER);
-    EXPOSE_CC(FONTSTYLE_SAVEGAMELIST);
-    EXPOSE_CC(FONTSTYLE_GENERIC);
+    m_state.set( "FONTSTYLE_CONSOLE_INFO", static_cast<int>(FontStyle::ConsoleInfo) );
+    m_state.set( "FONTSTYLE_CONSOLE_WARNING", static_cast<int>(FontStyle::ConsoleWarning) );
+    m_state.set( "FONTSTYLE_CONSOLE_EVENT", static_cast<int>(FontStyle::ConsoleEvent) );
+    m_state.set( "FONTSTYLE_CONSOLE_NOTIFY", static_cast<int>(FontStyle::ConsoleNotify) );
+    m_state.set( "FONTSTYLE_MENU_TITLE", static_cast<int>(FontStyle::MenuTitle) );
+    m_state.set( "FONTSTYLE_MENU_HEADING1", static_cast<int>(FontStyle::MenuHeading1) );
+    m_state.set( "FONTSTYLE_MENU_HEADING2", static_cast<int>(FontStyle::MenuHeading2) );
+    m_state.set( "FONTSTYLE_MENU_ITEM_ACTIVE", static_cast<int>(FontStyle::MenuItemActive) );
+    m_state.set( "FONTSTYLE_MENU_ITEM_INACTIVE", static_cast<int>(FontStyle::MenuItemInactive) );
+    m_state.set( "FONTSTYLE_MENU_CONTENT", static_cast<int>(FontStyle::MenuContent) );
+    m_state.set( "FONTSTYLE_STATS_TITLE", static_cast<int>(FontStyle::StatsTitle) );
+    m_state.set( "FONTSTYLE_STATS_CONTENT", static_cast<int>(FontStyle::StatsContent) );
+    m_state.set( "FONTSTYLE_NOTIFIER", static_cast<int>(FontStyle::Notifier) );
+    m_state.set( "FONTSTYLE_SAVEGAMELIST", static_cast<int>(FontStyle::SavegameList) );
+    m_state.set( "FONTSTYLE_GENERIC", static_cast<int>(FontStyle::Generic) );
 
-    EXPOSE_CC(FONT_PRIMARY);
-    EXPOSE_CC(FONT_SECONDARY);
-    EXPOSE_CC(FONT_CONSOLE);
+    m_state.set( "FONT_PRIMARY", static_cast<int>(FontType::Primary) );
+    m_state.set( "FONT_SECONDARY", static_cast<int>(FontType::Secondary) );
+    m_state.set( "FONT_CONSOLE", static_cast<int>(FontType::Console) );
 
 #undef EXPOSE_C
 #undef EXPOSE_CC
@@ -3201,7 +3201,7 @@ int ScriptEngine::print(lua_State* state)
 
     if(top == 0)
     {
-        ConsoleInfo::instance().addLine("nil", FONTSTYLE_CONSOLE_EVENT);
+        ConsoleInfo::instance().addLine("nil", FontStyle::ConsoleEvent);
         return 0;
     }
 
@@ -3243,7 +3243,7 @@ int ScriptEngine::print(lua_State* state)
                 break;
         }
 
-        ConsoleInfo::instance().addLine(str, FONTSTYLE_CONSOLE_EVENT);
+        ConsoleInfo::instance().addLine(str, FontStyle::ConsoleEvent);
     }
     return 0;
 }
@@ -3582,7 +3582,7 @@ bool script::MainEngine::getOverridedSamplesInfo(int *num_samples, int *num_soun
 
 bool script::MainEngine::getOverridedSample(int sound_id, int *first_sample_number, int *samples_count)
 {
-    lua::tie(*first_sample_number, *samples_count) = call("getOverridedSample", static_cast<int>(engine_world.engineVersion), int(gameflow_manager.CurrentLevelID), sound_id);
+    lua::tie(*first_sample_number, *samples_count) = call("getOverridedSample", static_cast<int>(engine_world.engineVersion), int(Gameflow_Manager.getLevelID()), sound_id);
     return *first_sample_number != -1 && *samples_count != -1;
 }
 
@@ -3614,7 +3614,7 @@ bool script::MainEngine::getSysNotify(int string_index, size_t string_size, char
 
 bool script::MainEngine::getLoadingScreen(int level_index, char *pic_path)
 {
-    const char* realPath = call("getLoadingScreen", int(gameflow_manager.CurrentGameID), int(gameflow_manager.CurrentLevelID), level_index);
+    const char* realPath = call("getLoadingScreen", int(Gameflow_Manager.getGameID()), int(Gameflow_Manager.getLevelID()), level_index);
     strncpy(pic_path, realPath, MAX_ENGINE_PATH);
     return true;
 }
@@ -3682,9 +3682,9 @@ void script::ScriptEngine::parseScreen(struct ScreenInfo *sc)
     sc->w = (*this)["screen"]["width"];
     sc->h = (*this)["screen"]["height"];
     sc->w = (*this)["screen"]["width"];
-    sc->w_unit = sc->w / GUI_SCREEN_METERING_RESOLUTION;
+    sc->w_unit = sc->w / ScreenMeteringResolution;
     sc->h = (*this)["screen"]["height"];
-    sc->h_unit = sc->h / GUI_SCREEN_METERING_RESOLUTION;
+    sc->h_unit = sc->h / ScreenMeteringResolution;
     sc->FS_flag = (*this)["screen"]["fullscreen"];
     sc->show_debuginfo = (*this)["screen"]["debug_info"];
     sc->fov = (*this)["screen"]["fov"];
