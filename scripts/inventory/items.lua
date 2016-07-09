@@ -9,9 +9,9 @@
 
 function genBaseItems()
 
-    local ver = getEngineVersion();
+    local ver = getLevelVersion();
 
-    if(ver == Engine.I) then
+    if(ver < TR_II) then
         createBaseItem(ITEM_PASSPORT, 71, 71, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_PASSPORT);
         createBaseItem(ITEM_VIDEO, 95, 95, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_VIDEO);
         createBaseItem(ITEM_AUDIO, 96, 96, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_AUDIO);
@@ -48,7 +48,7 @@ function genBaseItems()
         createBaseItem(ITEM_QUEST_2, 146, 146, ITEM_TYPE_QUEST, 1);
         createBaseItem(ITEM_QUEST_3, 150, 150, ITEM_TYPE_QUEST, 1);
 
-    elseif(ver == Engine.II) then
+    elseif(ver < TR_III) then
         createBaseItem(ITEM_PASSPORT, 120, 120, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_PASSPORT);
         createBaseItem(ITEM_VIDEO, 153, 153, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_VIDEO);
         createBaseItem(ITEM_AUDIO, 154, 154, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_AUDIO);
@@ -91,7 +91,7 @@ function genBaseItems()
         --createBaseItem(ITEM_SECRET_2, 121, 121, ITEM_TYPE_QUEST, 1);
         --createBaseItem(ITEM_SECRET_3, 133, 133, ITEM_TYPE_QUEST, 1);
 
-    elseif(ver == Engine.III) then
+    elseif(ver < TR_IV) then
         createBaseItem(ITEM_PASSPORT, 145, 145, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_PASSPORT);
         createBaseItem(ITEM_VIDEO, 181, 181, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_VIDEO);
         createBaseItem(ITEM_AUDIO, 182, 182, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_AUDIO);
@@ -131,13 +131,8 @@ function genBaseItems()
         createBaseItem(ITEM_PUZZLE_2, 206, 206, ITEM_TYPE_QUEST, 1);
         createBaseItem(ITEM_PUZZLE_3, 207, 207, ITEM_TYPE_QUEST, 1);
         createBaseItem(ITEM_PUZZLE_4, 208, 208, ITEM_TYPE_QUEST, 1);
-        
-        createBaseItem(ITEM_PUZZLE_4, 240, 240, ITEM_TYPE_QUEST, 1);
-        createBaseItem(ITEM_PUZZLE_4, 241, 241, ITEM_TYPE_QUEST, 1);
-        createBaseItem(ITEM_PUZZLE_4, 242, 242, ITEM_TYPE_QUEST, 1);
-        createBaseItem(ITEM_PUZZLE_4, 243, 243, ITEM_TYPE_QUEST, 1);
 
-    elseif(ver == Engine.IV) then
+    elseif(ver < TR_V) then
         createBaseItem(ITEM_COMPASS, 375, 375, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_COMPASS);
         createBaseItem(ITEM_LOAD, 376, 376, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_LOAD);
         createBaseItem(ITEM_SAVE, 377, 377, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_SAVE);
@@ -254,7 +249,7 @@ function genBaseItems()
 
         createBaseItem(ITEM_SECRET_1, 120, 120, ITEM_TYPE_QUEST, 1);
 
-    elseif(ver == Engine.V) then
+    elseif(ver == TR_V) then
         createBaseItem(ITEM_COMPASS, 356, 356, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_COMPASS);
         createBaseItem(ITEM_LOAD, 357, 357, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_LOAD);
         createBaseItem(ITEM_SAVE, 358, 358, ITEM_TYPE_SYSTEM, 1, ITEM_NAME_SAVE);

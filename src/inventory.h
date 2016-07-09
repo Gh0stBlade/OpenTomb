@@ -1,8 +1,6 @@
-#pragma once
+#ifndef INVENTORY_H
+#define INVENTORY_H
 
-#include <list>
-
-#include "gui.h"
 
 #define ITEM_COMPASS  1     // Aka Watch in TR2-3, Timex in TR5
 #define ITEM_PASSPORT 2     // Exists only in TR1-3, not used in TR4 (diary)
@@ -54,114 +52,29 @@
 #define ITEM_SECRET_2 121
 #define ITEM_SECRET_3 122
 
-
-struct InventoryNode; ///????
-
-enum class MenuItemType
+typedef struct base_item_s
 {
-    System,
-    Supply,
-    Quest,
-    Invalid
-};
+    uint32_t                    id;
+    uint32_t                    world_model_id;
+    uint16_t                    type;
+    uint16_t                    count;
+    char                        name[64];
+    struct ss_bone_frame_s     *bf;
+}base_item_t, *base_item_p;
 
-inline MenuItemType nextItemType(MenuItemType t)
+
+typedef struct inventory_node_s
 {
-    switch(t)
-    {
-        case MenuItemType::System: return MenuItemType::Supply;
-        case MenuItemType::Supply: return MenuItemType::Quest;
-        default: return MenuItemType::Invalid;
-    }
-}
+    uint32_t                    id;
+    int32_t                     count;
+    uint32_t                    max_count;
+    struct inventory_node_s    *next;
+}inventory_node_t, *inventory_node_p;
 
-inline MenuItemType previousItemType(MenuItemType t)
-{
-    switch(t)
-    {
-        case MenuItemType::Supply: return MenuItemType::System;
-        case MenuItemType::Quest: return MenuItemType::Supply;
-        default: return MenuItemType::Invalid;
-    }
-}
 
-/*
- * Other inventory renderer class
- */
-class InventoryManager
-{
-public:
-    enum class InventoryState
-    {
-        Disabled = 0,
-        Idle,
-        Open,
-        Closed,
-        RLeft,
-        RRight,
-        Up,
-        Down,
-        Activate
-    };
+int32_t Inventory_AddItem(struct inventory_node_s **root, uint32_t item_id, int32_t count);
+int32_t Inventory_RemoveItem(struct inventory_node_s **root, uint32_t item_id, int32_t count);
+int32_t Inventory_RemoveAllItems(struct inventory_node_s **root);
+int32_t Inventory_GetItemsCount(struct inventory_node_s *root, uint32_t item_id);
 
-private:
-    std::list<InventoryNode>*   m_inventory;
-    InventoryState              m_currentState;
-    InventoryState              m_nextState;
-    int                         m_nextItemsCount;
-
-    MenuItemType                m_currentItemsType;
-    int                         m_currentItemsCount;
-    int                         m_itemsOffset;
-
-    float                       m_ringRotatePeriod;
-    float                       m_ringTime;
-    float                       m_ringAngle;
-    float                       m_ringVerticalAngle;
-    float                       m_ringAngleStep;
-    float                       m_baseRingRadius;
-    float                       m_ringRadius;
-    float                       m_verticalOffset;
-
-    float                       m_itemRotatePeriod;
-    float                       m_itemTime;
-    float                       m_itemAngle;
-
-    int getItemsTypeCount(MenuItemType type);
-    void restoreItemAngle(float time);
-
-public:
-    TextLine             mLabel_Title;
-    TextLine             mLabel_ItemName;
-
-    InventoryManager();
-    ~InventoryManager();
-
-    InventoryState getCurrentState()
-    {
-        return m_currentState;
-    }
-
-    InventoryState getNextState()
-    {
-        return m_nextState;
-    }
-
-    void send(InventoryState state)
-    {
-        m_nextState = state;
-    }
-
-    MenuItemType getItemsType()
-    {
-        return m_currentItemsType;
-    }
-
-    MenuItemType setItemsType(MenuItemType type);
-    void setInventory(std::list<InventoryNode> *i);
-    void setTitle(MenuItemType items_type);
-    void frame(float time);
-    void render();
-};
-
-extern InventoryManager  *main_inventory_manager;
+#endif

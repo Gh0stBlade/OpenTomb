@@ -11,13 +11,10 @@ uniform float light_outerRadius[NUMBER_OF_LIGHTS];
 #endif
 uniform vec4 light_ambient;
 
-in vec4 varying_color;
-in vec2 varying_texCoord;
-in vec3 varying_normal;
-in vec3 varying_position;
-
-// Color output
-out vec4 color;
+varying vec4 varying_color;
+varying vec2 varying_texCoord;
+varying vec3 varying_normal;
+varying vec3 varying_position;
 
 void main()
 {
@@ -42,9 +39,6 @@ void main()
 #endif
     
     // Combine with color from texture and vertex
-    vec4 texColor = texture(color_map, varying_texCoord);
-    vec4 c = texColor * lightColor * varying_color;
-    if( c.a < 0.5 )
-        discard;
-    color = c;
+    vec4 texColor = texture2D(color_map, varying_texCoord);
+    gl_FragColor = texColor * lightColor * varying_color;
 }

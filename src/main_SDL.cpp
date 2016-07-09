@@ -1,34 +1,23 @@
-#include <chrono>
-#include <cstdlib>
+
+#include <SDL2/SDL.h>
+#include <stdlib.h>
 
 #include "engine.h"
-#include "system.h"
 
-#define NO_AUDIO  0
+/*
+ * see ENGINE.md
+ * see TODO.md
+ */
 
-bool done = false;
-btScalar time_scale = 1.0;
-
-int main(int /*argc*/, char** /*argv*/)
+int main(int argc, char **argv)
 {
-    Engine_Start();
+    ///@TODO: add alternate config filename from argv
+    Engine_Start("config.lua");
 
     // Entering main loop.
-
-    std::chrono::high_resolution_clock::time_point prev_time = std::chrono::high_resolution_clock::now();
-
-    while(!done)
-    {
-        std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
-        auto delta = std::chrono::duration_cast<std::chrono::microseconds>(now - prev_time).count() / 1.0e6;
-        prev_time = now;
-
-        Engine_Frame(delta * time_scale);
-        Engine_Display();
-    }
+    Engine_MainLoop();
 
     // Main loop interrupted; shutting down.
-
     Engine_Shutdown(EXIT_SUCCESS);
     return(EXIT_SUCCESS);
 }

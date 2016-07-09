@@ -5,20 +5,25 @@
 -- This script defines some system-level functions, like task management.
 --------------------------------------------------------------------------------
 
+-- Global frame time variable, in seconds
+
+frame_time = 1.0 / 60.0;
+
+
 -- Key query functions
 
 keys_pressed = {};
 
-function addKey(code, pressed)
-    if(pressed) then
-        keys_pressed[code] = not keys_pressed[code];
+function addKey(code, event)
+    if(event >= 1) then
+        keys_pressed[code] = (keys_pressed[code] == nil);
     else
         keys_pressed[code] = nil;
     end;
 end
 
 function checkKey(code, once)
-    if(keys_pressed[code]) then
+    if(keys_pressed[code] ~= nil) then
         if(once) then
             return keys_pressed[code];
         else
@@ -31,17 +36,9 @@ end
 
 function clearKeys()
     for k,v in pairs(keys_pressed) do
-        keys_pressed[k] = false;
+        keys_pressed[k] = nil;
     end;
 end
-
-
--- Autoexec service functions
-
-function clearAutoexec()
-    autoexec_PostLoad = function() end;
-    autoexec_PreLoad = function() end;
-end;
 
 
 -- Task manager functions
@@ -85,34 +82,31 @@ end
 function execEntity(callback_id, object_id, activator_id)
     
     if((object_id == nil) or (callback_id == nil)) then -- Activator may be nil, in case of flyby camera heavy triggering!
-        return;
+        return -1;
     end
 
     if(entity_funcs[object_id] ~= nil) then
         if((bit32.band(callback_id, ENTITY_CALLBACK_ACTIVATE) ~= 0) and (entity_funcs[object_id].onActivate ~= nil)) then
-            entity_funcs[object_id].onActivate(object_id, activator_id);
+            return entity_funcs[object_id].onActivate(object_id, activator_id);
         end;
         
         if((bit32.band(callback_id, ENTITY_CALLBACK_DEACTIVATE) ~= 0) and (entity_funcs[object_id].onDeactivate ~= nil)) then
-            entity_funcs[object_id].onDeactivate(object_id, activator_id);
+            return entity_funcs[object_id].onDeactivate(object_id, activator_id);
         end;
 
         if((bit32.band(callback_id, ENTITY_CALLBACK_COLLISION) ~= 0) and (entity_funcs[object_id].onCollide ~= nil)) then
-            entity_funcs[object_id].onCollide(object_id, activator_id);
+            return entity_funcs[object_id].onCollide(object_id, activator_id);
         end;
 
         if((bit32.band(callback_id, ENTITY_CALLBACK_STAND) ~= 0) and (entity_funcs[object_id].onStand ~= nil)) then
-            entity_funcs[object_id].onStand(object_id, activator_id);
+            return entity_funcs[object_id].onStand(object_id, activator_id);
         end;
 
         if((bit32.band(callback_id, ENTITY_CALLBACK_HIT) ~= 0) and (entity_funcs[object_id].onHit ~= nil)) then
-            entity_funcs[object_id].onHit(object_id, activator_id);
-        end;
-        
-        if((bit32.band(callback_id, ENTITY_CALLBACK_ROOMCOLLISION) ~= 0) and (entity_funcs[object_id].onRoomCollide ~= nil)) then
-            entity_funcs[object_id].onRoomCollide(object_id, activator_id);
+            return entity_funcs[object_id].onHit(object_id, activator_id);
         end;
     end;
+    return -1;
 end
 
 function loopEntity(object_id)
@@ -123,14 +117,14 @@ end
 function tickEntity(object_id)
     local timer = getEntityTimer(object_id);
     if(timer > 0.0) then
-        timer = timer - FRAME_TIME;
+        timer = timer - frame_time;
         if(timer < 0.0) then timer = 0.0 end;
         setEntityTimer(object_id, timer);
         if(timer == 0.0) then
             return TICK_STOPPED;
         end;
     else
-        return TICK_IDLE;
+        return TICK_IDLE; -- never return!!!
     end;
     return TICK_ACTIVE;
 end

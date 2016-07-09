@@ -1,197 +1,53 @@
-#pragma once
 
-#include <cctype>
+#ifndef PARSE_H
+#define PARSE_H
 
-#include <LinearMath/btScalar.h>
+struct screen_info_s;
+struct entity_s;
+struct lua_State;
 
-#include <lua.hpp>
-#include "LuaState.h"
-
-#define CVAR_NAME_SIZE 32
 #define CVAR_LUA_TABLE_NAME "cvars"
 
-struct ScreenInfo;
-struct ConsoleInfo;
-struct Entity;
 
-struct AudioSettings;
-struct ControlSettings;
-struct RenderSettings;
-struct SystemSettings;
+extern lua_State *engine_lua;
 
-namespace script
-{
-    class ScriptEngine
-    {
-    public:
-        ScriptEngine()
-        {
-            exposeConstants();
-            registerFunction("print", &ScriptEngine::print);
-            lua_atpanic(m_state.getState(), &ScriptEngine::panic);
-        }
+void Script_LoadConstants(lua_State *lua);
+bool Script_LuaInit();
+void Script_LuaClearTasks();
+void Script_LuaRegisterFuncs(lua_State *lua);
 
-        virtual ~ScriptEngine() = default;
+char *SC_ParseToken(char *data, char *token);
+float SC_ParseFloat(char **ch);
+int   SC_ParseInt(char **ch);
 
-        void doFile(const std::string& filename)
-        {
-            m_state.doFile(filename);
-        }
+int  lua_print(lua_State * lua);
+int  lua_BindKey(lua_State *lua);
 
-        void doString(const std::string& script)
-        {
-            m_state.doString(script);
-        }
 
-        lua::Value operator[](lua::String key) const
-        {
-            return get(key);
-        }
+#define lua_CallAndLog(L,n,r,f) lua_CallWithError(L, n, r, f, __FILE__, __LINE__)
+bool  lua_CallWithError(lua_State *lua, int nargs, int nresults, int errfunc, const char *cfile, int cline);
 
-        lua::Value get(lua::String key) const
-        {
-            return m_state[key];
-        }
+int Script_ParseScreen(lua_State *lua, struct screen_info_s *sc);
+int Script_ParseRender(lua_State *lua, struct render_settings_s *rs);
+int Script_ParseAudio(lua_State *lua, struct audio_settings_s *as);
+int Script_ParseConsole(lua_State *lua);
+int Script_ParseControls(lua_State *lua, struct control_settings_s *cs);
 
-        template<typename K, typename V>
-        ScriptEngine& set(const K& key, const V& value)
-        {
-            m_state.set(key, value);
-            return *this;
-        }
+bool Script_GetOverridedSamplesInfo(lua_State *lua, int *num_samples, int *num_sounds, char *sample_name_mask);
+bool Script_GetOverridedSample(lua_State *lua, int sound_id, int *first_sample_number, int *samples_count);
 
-        template<typename... T>
-        lua::Value call(const std::string& funcName, const T&... args) const
-        {
-            return get(funcName.c_str()).call(args...);
-        }
+int  Script_GetGlobalSound(lua_State *lua, int global_sound_id);
+int  Script_GetSecretTrackNumber(lua_State *lua);
+int  Script_GetNumTracks(lua_State *lua);
+bool Script_GetSoundtrack(lua_State *lua, int track_index, char *track_path, int *load_method, int *stream_type);
+bool Script_GetLoadingScreen(lua_State *lua, int level_index, char *pic_path);
+bool Script_GetString(lua_State *lua, int string_index, size_t string_size, char *buffer);
 
-        // Simple override to register both upper- and lowercase versions of function name.
-        template<typename Function>
-        inline void registerC(const std::string& func_name, Function func)
-        {
-            std::string uc, lc;
-            for(char c : func_name)
-            {
-                lc += std::tolower(c);
-                uc += std::toupper(c);
-            }
+void Script_LoopEntity(lua_State *lua, int object_id);
+int  Script_ExecEntity(lua_State *lua, int id_callback, int id_object, int id_activator = -1);
+int  Script_DoTasks(lua_State *lua, float time);
+bool Script_CallVoidFunc(lua_State *lua, const char* func_name, bool destroy_after_call = false);
 
-            m_state.set(func_name.c_str(), func);
-            m_state.set(lc.c_str(), func);
-            m_state.set(uc.c_str(), func);
-        }
+void Script_AddKey(lua_State *lua, int keycode, int state);
 
-        inline void registerC(const std::string& func_name, int(*func)(lua_State*))
-        {
-            std::string uc, lc;
-            for(char c : func_name)
-            {
-                lc += std::tolower(c);
-                uc += std::toupper(c);
-            }
-
-            lua_register(m_state.getState(), func_name.c_str(), func);
-            lua_register(m_state.getState(), lc.c_str(), func);
-            lua_register(m_state.getState(), uc.c_str(), func);
-        }
-
-        inline void registerFunction(const std::string& func_name, int(*func)(lua_State*))
-        {
-            lua_register(m_state.getState(), func_name.c_str(), func);
-        }
-
-        void exposeConstants();
-        std::vector<std::string> getGlobals();
-
-        void parseScreen(ScreenInfo *sc);
-        void parseRender(RenderSettings *rs);
-        void parseAudio(AudioSettings *as);
-        void parseConsole(ConsoleInfo *cn);
-        void parseControls(ControlSettings *cs);
-        void parseSystem(SystemSettings *ss);
-
-    protected:
-        void checkStack();
-
-    private:
-        lua::State m_state;
-
-        // Print function override. Puts printed string into console.
-        static int print(lua_State *state);
-        static int panic(lua_State *state);
-    };
-
-    class MainEngine : public ScriptEngine
-    {
-    public:
-        MainEngine() : ScriptEngine()
-        {
-            registerMainFunctions();
-            doFile("scripts/loadscript.lua");
-        }
-
-        void clearTasks() const
-        {
-            call("clearTasks");
-        }
-
-        void prepare()
-        {
-            call("fe_Prepare");
-        }
-
-        void clean()
-        {
-            call("st_Clear");
-            call("tlist_Clear");
-            call("entfuncs_Clear");
-            call("fe_Clear");
-
-            call("clearAutoexec");
-        }
-
-        void doTasks(btScalar time)
-        {
-            set("FRAME_TIME", time);
-
-            call("doTasks");
-            call("clearKeys");
-        }
-
-        // System Lua functions. Not directly called from scripts.
-
-        void loopEntity(int object_id);
-        void execEntity(int id_callback, int id_object, int id_activator = -1);
-        void execEffect(int id, int caller = -1, int operand = -1);
-
-        void addKey(int keycode, bool state);
-
-        static void bindKey(int act, int primary, lua::Value secondary);
-
-        // Helper Lua functions. Not directly called from scripts.
-
-        bool getOverridedSamplesInfo(int *num_samples, int *num_sounds, char *sample_name_mask);
-        bool getOverridedSample(int sound_id, int *first_sample_number, int *samples_count);
-
-        int  getGlobalSound(int global_sound_id);
-        int  getSecretTrackNumber();
-        int  getNumTracks();
-        bool getSoundtrack(int track_index, char *track_path, int *load_method, int *stream_type);
-        bool getLoadingScreen(int level_index, char *pic_path);
-        bool getString(int string_index, size_t string_size, char *buffer);
-        bool getSysNotify(int string_index, size_t string_size, char *buffer);
-
-        // Parsing functions - both native and Lua. Not directly called from scripts.
-
-        static const char *parse_token(const char *data, char *token);
-
-        static float parseFloat(const char **ch);
-        static int   parseInt(char **ch);
-
-    private:
-        void registerMainFunctions();
-    };
-}
-
-extern script::MainEngine engine_lua;
+#endif

@@ -5,7 +5,62 @@
 -- Here we'll place any debug routines probably needed for testing in game.
 --------------------------------------------------------------------------------
 
+debug_game = GAME_1;
+debug_level = 1;
+
+function goToEntity(id)
+    if(player ~= nil) then
+        setEntityPos(player, getEntityPos(id));
+    end;
+end;
+
 function checkDebugKeys()
+    if(checkKey(KEY_RETURN, true)) then
+        setGame(debug_game, debug_level);
+        debug_level = debug_level + 1;
+        if(debug_game == GAME_1) then 
+            if(debug_level == 16) then
+                debug_game = GAME_1_5;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_1_5) then
+            if(debug_level == 5) then
+                debug_game = GAME_2;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_2) then
+            if(debug_level == 19) then
+                debug_game = GAME_2_5;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_2_5) then
+            if(debug_level == 6) then
+                debug_game = GAME_3;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_3) then
+            if(debug_level == 21) then
+                debug_game = GAME_3_5;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_3_5) then
+            if(debug_level == 7) then
+                debug_game = GAME_4;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_4) then
+            if(debug_level == 39) then
+                debug_game = GAME_5;
+                debug_level = 1;
+            end;
+        elseif(debug_game == GAME_5) then
+            if(debug_level == 15) then
+                debug_game = GAME_1;
+                debug_level = 1;
+            end;
+        end;
+    end;
+
     if(checkKey(KEY_R, true)) then
         print("Ragdoll activated!");
         addEntityRagdoll(player, RD_TYPE_LARA);
@@ -15,15 +70,7 @@ function checkDebugKeys()
         print("Ragdoll deactivated!");
         removeEntityRagdoll(player);
     end;
-    
-    if(checkKey(KEY_N, true)) then
-        noclip();
-    end;
-    
-    if(checkKey(KEY_G, true)) then
-        timescale();
-    end;
-    
+       
     if(checkKey(KEY_Y, true)) then
         debuginfo();
     end;
@@ -35,17 +82,17 @@ function checkDebugKeys()
     
     if(checkKey(KEY_Z, true)) then
         if(getEntityMoveType(player) == MOVE_UNDERWATER) then
-            setEntityAnim(player, 103);
+            setEntityAnim(player, ANIM_TYPE_BASE, 103);
         else
-            setEntityAnim(player, 108);
+            setEntityAnim(player, ANIM_TYPE_BASE, 108);
         end;
         
-        setEntityCollision(player, true);
+        setEntityCollision(player, 1);
         removeEntityRagdoll(player);
         setEntityMoveType(player, MOVE_FREE_FALLING);
         setEntityResponse(player, RESP_KILL, 0);
         setCharacterParam(player, PARAM_HEALTH, PARAM_ABSOLUTE_MAX);
-        setEntityAnimFlag(player, ANIM_NORMAL_CONTROL);
+        setEntityAnimFlag(player, ANIM_TYPE_BASE, ANIM_NORMAL_CONTROL);
     end;
     
     if(checkKey(KEY_1, true)) then setCharacterCurrentWeapon(player, 1) end;
@@ -63,7 +110,7 @@ end;
 
 function checkPlayerRagdollConditions()
     local anim, frame, count = getEntityAnim(player);
-    local version = getEngineVersion();
+    local version = getLevelVersion();
     
     if(getEntityTypeFlag(player, ENTITY_TYPE_DYNAMIC) == 0) then
         if( ((anim ==  25) and (frame >= 6 )) or
@@ -72,7 +119,7 @@ function checkPlayerRagdollConditions()
             ((anim == 133) and (frame >= 18)) or
             ((anim == 145) and (frame >= 67)) or
             ((anim == 301) and (frame >= 57)) or
-            ((anim == 138) and (((frame >= 60) and (version >= Engine.II)) or ((frame >= 8) and (version < Engine.II)))) ) then
+            ((anim == 138) and (((frame >= 60) and (version >= TR_II)) or ((frame >= 8) and (version < TR_II)))) ) then
                 addEntityRagdoll(player, RD_TYPE_LARA);
         end;
     end;

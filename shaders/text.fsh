@@ -1,19 +1,19 @@
 // GLSL fragment program for drawingtext
 
 // Varying attribute for color
-in vec4 varying_color;
+varying vec4 varying_color;
 
 // Varying attribute for position, used to form tex coordinate
-in vec2 varying_texCoord;
+varying vec2 varying_texCoord;
 
 // Texture
 uniform sampler2D color_map;
-
-// Color output
-out vec4 color;
+// Color replace coefficient [0..1]
+uniform float colorReplace;
 
 void main(void)
 {
-    vec4 texColor = texture(color_map, varying_texCoord);
-    color = vec4(varying_color.rgb, texColor.r);
+    vec4 texColor = texture2D(color_map, varying_texCoord);
+    texColor.rgb = texColor.rgb * (1.0 - colorReplace) + vec3(colorReplace, colorReplace, colorReplace);
+    gl_FragColor = varying_color * texColor;
 }

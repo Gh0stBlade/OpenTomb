@@ -1,0 +1,1 @@
+SDL_Image error: failed to initialize JPG and/or PNG support.SDL_Image error: failed to initialize JPG and/or PNG support.SDL_Image error: failed to initialize JPG and/or PNG support.SDL_Image error: failed to initialize JPG and/or PNG support.

@@ -118,17 +118,17 @@ tr5_global_sounds[GLOBALID_MOVINGWALL]  = -1;
 tr5_global_sounds[GLOBALID_SPIKEHIT]    = -1;
 
 
-function getGlobalSound(engine, id)
+function getGlobalSound(ver, id)
     local result;
-    if(engine == Engine.I) then
+    if(ver < 3) then                    -- TR_I, TR_I_DEMO, TR_I_UB
         result = tr1_global_sounds[id];
-    elseif(engine == Engine.II) then
+    elseif(ver < 5) then                -- TR_II, TR_II_DEMO
         result = tr2_global_sounds[id];
-    elseif(engine == Engine.III) then
+    elseif(ver < 6) then                -- TR_III
         result = tr3_global_sounds[id];
-    elseif(engine == Engine.IV) then
+    elseif(ver < 8) then                -- TR_IV, TR_IV_DEMO
         result = tr4_global_sounds[id];
-    elseif(engine == Engine.V) then
+    elseif(ver < 9) then                -- TR_V
         result = tr5_global_sounds[id];
     else
         result = -1;

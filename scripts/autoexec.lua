@@ -38,7 +38,7 @@ function setDefaultModelAnimReplaceFlag(m_id)
     setModelAnimReplaceFlag(m_id, 13, 0x01);
 end
 
-if (getEngineVersion() == Engine.I) then
+if (getLevelVersion() < TR_II) then
     -- pistols
     setDefaultModelAnimReplaceFlag(1);
     setModelMeshReplaceFlag(1, 10, 0x01);
@@ -67,7 +67,7 @@ if (getEngineVersion() == Engine.I) then
     setModelMeshReplaceFlag(4, 1, 0x03);
     setModelMeshReplaceFlag(4, 4, 0x03);
 
-elseif (getEngineVersion() < Engine.II) then
+elseif (getLevelVersion() < TR_III) then
     -- pistols
     setDefaultModelAnimReplaceFlag(1);
     setModelMeshReplaceFlag(1, 10, 0x01);
@@ -116,7 +116,7 @@ elseif (getEngineVersion() < Engine.II) then
     setModelAnimReplaceFlag(9, 12, 0x01);
     setModelAnimReplaceFlag(9, 13, 0x01);
     setModelMeshReplaceFlag(9, 13, 0x01);
-elseif (getEngineVersion() < Engine.III) then
+elseif (getLevelVersion() < TR_IV) then
     -- pistols
     setDefaultModelAnimReplaceFlag(1);
     setModelMeshReplaceFlag(1, 10, 0x01);
@@ -168,7 +168,7 @@ elseif (getEngineVersion() < Engine.III) then
     setModelAnimReplaceFlag(10, 13, 0x01);
     setModelMeshReplaceFlag(10, 13, 0x01);
 
-elseif (getEngineVersion() == Engine.IV or getEngineVersion() == Engine.V) then
+elseif (getLevelVersion() <= TR_V) then
     -- pistols
     copyMeshFromModelToModel(1, 14, 1, 4);
     copyMeshFromModelToModel(1, 14, 4, 8);
@@ -214,8 +214,7 @@ elseif (getEngineVersion() == Engine.IV or getEngineVersion() == Engine.V) then
     setModelAnimReplaceFlag(7, 13, 0x01);
     setModelMeshReplaceFlag(7, 13, 0x01);
 end
-
-setModelCollisionMapSize(0, 11);            
+          
 setModelCollisionMap(0, 0, 0);              -- butt
 setModelCollisionMap(0, 1, 7);              -- body
 setModelCollisionMap(0, 2, 14);             -- head
@@ -238,22 +237,18 @@ setModelCollisionMap(0, 14, 13);
 setAnimCommandTransform(0, 147,  0, 0x00);   -- roll animation smooth fix 
 setAnimCommandTransform(0, 146, -2, 0x03);
 
-if(getEngineVersion() >= Engine.II) then
+if(getLevelVersion() >= TR_II) then
     setAnimCommandTransform(0, 205,  1, 0x00);
     setAnimCommandTransform(0, 203, -2, 0x03);
 end
 
--- Fix for reach jump height (was hardcoded in originals)
-
-setAnimVerticalSpeed(0, 26, -1, -116);
-
 -- Generate UV rotation texture animations for waterfalls in TR4+ versions
 
-if (getEngineVersion() == Engine.IV) then
+if (getLevelVersion() == TR_IV) then
     for i=423, 426, 1 do
         genUVRotateAnimation(i);
     end;
-elseif (getEngineVersion() == Engine.V) then
+elseif (getLevelVersion() == TR_V) then
     for i=410, 415, 1 do
         genUVRotateAnimation(i);
     end;

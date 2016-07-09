@@ -250,48 +250,46 @@ function switch_activate(object_id, actor_id)   -- actor ID is needed to activat
     local m_id = getEntityModelID(object_id);
     
     if(m_id == nil or m_id < 0) then
-        return false;
+        return 0;
     end
-    
     local on  = {};
     local off = {};
     local key = nil;
-
-    if(getEngineVersion() == Engine.I) then
+    if(getLevelVersion() < TR_II) then
         if(tr1_switches[m_id] ~= nil) then
             on       = tr1_switches[m_id].on;
             off      = tr1_switches[m_id].off;
             key      = tr1_key[m_id];
             meshswap = tr1_puzzlehole_meshswap[m_id];
         else
-            return false;
+            return 0;
         end
-    elseif(getEngineVersion() == Engine.II) then
+    elseif(getLevelVersion() < TR_III) then
         if(tr2_switches[m_id] ~= nil) then
             on       = tr2_switches[m_id].on;
             off      = tr2_switches[m_id].off;
             key      = tr2_key[m_id];
             meshswap = tr2_puzzlehole_meshswap[m_id];
         else
-            return false;
+            return 0;
         end
-    elseif(getEngineVersion() == Engine.III) then
+    elseif(getLevelVersion() < TR_IV) then
         if(tr3_switches[m_id] ~= nil) then
             on       = tr3_switches[m_id].on;
             off      = tr3_switches[m_id].off;
             key      = tr3_key[m_id];
             meshswap = tr3_puzzlehole_meshswap[m_id];
         else
-            return false;
+            return 0;
         end
-    elseif(getEngineVersion() == Engine.IV) then
+    elseif(getLevelVersion() < TR_V) then
         if(tr4_switches[m_id] ~= nil) then
             on       = tr4_switches[m_id].on;
             off      = tr4_switches[m_id].off;
             key      = tr4_key[m_id];
             meshswap = tr4_puzzlehole_meshswap[m_id];
         else
-            return false;
+            return 0;
         end
     else
         if(tr5_switches[m_id] == nil) then
@@ -320,7 +318,7 @@ function switch_activate(object_id, actor_id)   -- actor ID is needed to activat
                     off = {ready_anim =  1, trig_anim = 3, actor_anim = ocb + 1};
                 end
             else
-                return false;
+                return 0;
             end
         else
             on       = tr5_switches[m_id].on;
@@ -335,18 +333,18 @@ function switch_activate(object_id, actor_id)   -- actor ID is needed to activat
     if(on.ready_anim < 0 or on.ready_anim == t) then
         if(key ~= nil) then
             if(getItemsCount(player, key) <= 0) then
-                if(not getActionChange(act.action)) then
+                if(getActionChange(act.action) == 0) then
                     playSound(SOUND_NO);
                 end;
-                return false;
+                return 0;
             else
                 removeItem(player, key, 1);
             end;
         end;
         
-        setEntityAnim(object_id, on.trig_anim, 0);
-        setEntityAnim(actor_id, on.actor_anim, 0);
-        setEntityActivity(object_id, true);
+        setEntityAnim(object_id, ANIM_TYPE_BASE, on.trig_anim, 0);
+        setEntityAnim(actor_id, ANIM_TYPE_BASE, on.actor_anim, 0);
+        setEntityActivity(object_id, 1);
         addTask(
         function()
             local a, f, c = getEntityAnim(actor_id);
@@ -358,19 +356,18 @@ function switch_activate(object_id, actor_id)   -- actor ID is needed to activat
                     if(meshswap ~= nil) then
                         setEntityMeshswap(object_id, meshswap); -- only for puzzleholes - do a meshswap
                     end
-                    setEntityLock(object_id, true);        -- lock filled hole
+                    setEntityLock(object_id, 1);        -- lock filled hole
                 else
-                    setEntitySectorStatus(object_id, true);        -- only for switches - turn on
+                    setEntitySectorStatus(object_id, 1);        -- only for switches - turn on
                 end
                 return false;
             end
             return true;
         end);
-    -- Off case: Locked switches doesn't flip back, but only in TR3+
-    elseif(off.ready_anim == t and ((getEngineVersion() < Engine.III) or (not getEntityLock(object_id)))) then
-        setEntityAnim(object_id, off.trig_anim, 0);
-        setEntityAnim(actor_id, off.actor_anim, 0);
-        setEntityActivity(object_id, true);
+    elseif(off.ready_anim == t and getEntityLock(object_id) ~= 1) then  -- Locked switches doesn't flip back!
+        setEntityAnim(object_id, ANIM_TYPE_BASE, off.trig_anim, 0);
+        setEntityAnim(actor_id, ANIM_TYPE_BASE, off.actor_anim, 0);
+        setEntityActivity(object_id, 1);
         addTask(
         function()
             local a, f, c = getEntityAnim(actor_id);
@@ -378,14 +375,12 @@ function switch_activate(object_id, actor_id)   -- actor ID is needed to activat
                 c = off.switch_frame
             end
             if(f >= c - 1) then   -- check the end of animation
-                setEntitySectorStatus(object_id, true);  -- only for switches - turn off
+                setEntitySectorStatus(object_id, 1);  -- only for switches - turn off
                 return false;
             end
             return true;
         end);
-    else
-        return false;
     end
     
-    return true;
+    return 1;
 end

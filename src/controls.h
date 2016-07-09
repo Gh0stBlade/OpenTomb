@@ -1,8 +1,9 @@
-#pragma once
 
-#include <LinearMath/btScalar.h>
+#ifndef CONTROLS_H
+#define CONTROLS_H
 
 #include <SDL2/SDL.h>
+#include <stdint.h>
 
 #define JOY_BUTTON_MASK  1000
 #define JOY_HAT_MASK     1100
@@ -11,8 +12,7 @@
 #define JOY_TRIGGER_DEADZONE 10000
 
 // Action mapper index constants
-enum ACTIONS
-{
+enum ACTIONS {
     // Movement directions
     ACT_UP,                     // 0
     ACT_DOWN,                   // 1
@@ -67,8 +67,7 @@ enum ACTIONS
     ACT_LASTINDEX               // 43
 };
 
-enum AXES
-{
+enum AXES {
     AXIS_LOOK_X,        // Look axes
     AXIS_LOOK_Y,
     AXIS_MOVE_X,        // Move axes
@@ -77,57 +76,58 @@ enum AXES
     AXIS_LASTINDEX
 };
 
-struct ControlAction
+typedef struct control_action_s
 {
-    int      primary = 0;
-    int      secondary = 0;
-    bool     state = false;
-    bool     already_pressed = false;
-};
+    int      primary;
+    int      secondary;
+    bool     state;
+    bool     already_pressed;
+}control_action_t, *control_action_p;
 
-//! @todo Use bool where appropriate.
-struct ControlSettings
+typedef struct control_settings_s
 {
-    float    mouse_sensitivity = 0;
-    float    mouse_scale_x = 0.01f;
-    float    mouse_scale_y = 0.01f;
+    float       mouse_sensitivity;
 
     // Global joystick settings.
-    bool   use_joy = 0;
-    int    joy_number = 0;
-    bool   joy_rumble = 0;
+    int8_t      use_joy;
+    int8_t      joy_number;
+    int8_t      joy_rumble;
 
     // Look axis settings.
-    btScalar joy_look_x = 0;                        // Raw look axis data!
-    btScalar joy_look_y = 0;                        // Raw look axis data!
-    bool     joy_look_invert_x = 0;
-    bool     joy_look_invert_y = 0;
-    btScalar joy_look_sensitivity = 0;
-    int16_t  joy_look_deadzone = 0;
+    float       joy_look_x;                        // Raw look axis data!
+    float       joy_look_y;                        // Raw look axis data!
+    int8_t      joy_look_invert_x;
+    int8_t      joy_look_invert_y;
+    float       joy_look_sensitivity;
+    int16_t     joy_look_deadzone;
 
     // Move axis settings.
-    btScalar joy_move_x = 0;                        // Raw move axis data!
-    btScalar joy_move_y = 0;                        // Raw move axis data!
-    bool     joy_move_invert_x = 0;
-    bool     joy_move_invert_y = 0;
-    btScalar joy_move_sensitivity = 0;
-    int16_t  joy_move_deadzone = 0;
+    float       joy_move_x;                        // Raw move axis data!
+    float       joy_move_y;                        // Raw move axis data!
+    int8_t      joy_move_invert_x;
+    int8_t      joy_move_invert_y;
+    float       joy_move_sensitivity;
+    int16_t     joy_move_deadzone;
 
-    int      joy_axis_map[AXIS_LASTINDEX+1] = {0};      // Axis array for action mapper.
+    int8_t      joy_axis_map[AXIS_LASTINDEX];      // Axis array for action mapper.
 
-    ControlAction  action_map[ACT_LASTINDEX+1]{};         // Actions array for action mapper.
-};
+    control_action_s  action_map[ACT_LASTINDEX];         // Actions array for action mapper.
+}control_settings_t, *control_settings_p;
 
-void Controls_PollSDLInput();
+
+extern struct engine_control_state_s            control_states;
+extern struct control_settings_s                control_mapper;
+
 void Controls_DebugKeys(int button, int state);
-void Controls_PrimaryMouseDown();
-void Controls_SecondaryMouseDown();
+void Controls_PrimaryMouseDown(float from[3], float to[3]);
+void Controls_SecondaryMouseDown(struct engine_container_s **cont, float dot[3]);
 
-void Controls_Key(int32_t button, bool state);
-void Controls_WrapGameControllerKey(int button, bool state);
+void Controls_Key(int32_t button, int state);
+void Controls_WrapGameControllerKey(int button, int state);
 void Controls_WrapGameControllerAxis(int axis, Sint16 value);
 void Controls_JoyAxis(int axis, Sint16 value);
 void Controls_JoyHat(int value);
-void Controls_JoyRumble(float power, int time);
 void Controls_RefreshStates();
 void Controls_InitGlobals();
+
+#endif /* CONTROLS_H */

@@ -10,7 +10,7 @@
 print("model ID override script loaded");
 
 --------------------------------------------------------------------------------
------------------------------ TR 1 ---------------------------------------------
+----------------------------- TR_I, TR_I_DEMO, TR_I_UB -------------------------
 --------------------------------------------------------------------------------
 tr1_id_override = {};
 
@@ -46,7 +46,7 @@ tr1_id_override[131] = 135;             --
 tr1_id_override[132] = 136;             --
 
 --------------------------------------------------------------------------------
---------------------------------- TR 2 -----------------------------------------
+--------------------------------- TR_II, TR_II_DEMO ----------------------------
 --------------------------------------------------------------------------------
 tr2_id_override = {};
 
@@ -93,46 +93,46 @@ tr2_anim_override[18] = 16;             -- Masked goon (black mask)
 
 
 --------------------------------------------------------------------------------
--------------------------------------- TR 3 ------------------------------------
+-------------------------------------- TR_III ----------------------------------
 --------------------------------------------------------------------------------
---tr3_id_override = {};
+tr3_id_override = {};
 
 --------------------------------------------------------------------------------
---------------------------------- TR 4 -----------------------------------------
+--------------------------------- TR_IV, TR_IV_DEMO ----------------------------
 --------------------------------------------------------------------------------
---tr4_id_override = {};
+tr4_id_override = {};
 
 --------------------------------------------------------------------------------
-------------------------------------- TR 5 -------------------------------------
+------------------------------------- TR_V -------------------------------------
 --------------------------------------------------------------------------------
---tr5_id_override = {};
+tr5_id_override = {};
 
 function getOverridedAnim(ver, id)
-    if(ver == Engine.I) then
+    if(ver < 3) then                    -- TR_I, TR_I_DEMO, TR_I_UB
         if((tr1_anim_override == nil) or (tr1_anim_override[id] == nil)) then
             return -1;
         else
             return tr1_anim_override[id];
         end;
-    elseif(ver == Engine.II) then
+    elseif(ver < 5) then                -- TR_II, TR_II_DEMO
         if((tr2_anim_override == nil) or (tr2_anim_override[id] == nil)) then
             return -1;
         else
             return tr2_anim_override[id];
         end
-    elseif(ver == Engine.III) then
+    elseif(ver < 6) then                -- TR_III
         if((tr3_anim_override == nil) or (tr3_anim_override[id] == nil)) then
             return -1;
         else
             return tr3_anim_override[id];
         end
-    elseif(ver == Engine.IV) then
+    elseif(ver < 8) then                -- TR_IV, TR_IV_DEMO
         if((tr4_anim_override == nil) or (tr4_anim_override[id] == nil)) then
             return -1;
         else
             return tr4_anim_override[id];
         end
-    elseif(ver == Engine.V) then
+    elseif(ver < 9) then                -- TR_V
         if((tr5_anim_override == nil) or (tr5_anim_override[id] == nil)) then
             return -1;
         else
@@ -144,31 +144,31 @@ function getOverridedAnim(ver, id)
 end;
 
 function getOverridedID(ver, id)
-    if(ver == Engine.I) then
+    if(ver < 3) then                    -- TR_I, TR_I_DEMO, TR_I_UB
         if(tr1_id_override[id] == nil) then
             return -1;
         else
             return tr1_id_override[id];
         end;
-    elseif(ver == Engine.II) then
+    elseif(ver < 5) then                -- TR_II, TR_II_DEMO
         if(tr2_id_override[id] == nil) then
             return -1;
         else
             return tr2_id_override[id];
         end
-    elseif(ver == Engine.III) then
+    elseif(ver < 6) then                -- TR_III
         if(tr3_id_override[id] == nil) then
             return -1;
         else
             return tr3_id_override[id];
         end
-    elseif(ver == Engine.IV) then
+    elseif(ver < 8) then                -- TR_IV, TR_IV_DEMO
         if(tr4_id_override[id] == nil) then
             return -1;
         else
             return tr4_id_override[id];
         end
-    elseif(ver == Engine.V) then
+    elseif(ver < 9) then                -- TR_V
         if(tr5_id_override[id] == nil) then
             return -1;
         else

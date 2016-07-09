@@ -1,144 +1,413 @@
-#include "engine.h"
-
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-
-#include <AL/al.h>
-#include <AL/alc.h>
-#include <AL/alext.h>
-
-#include <btBulletCollisionCommon.h>
-#include <btBulletDynamicsCommon.h>
-#include <BulletCollision/CollisionDispatch/btGhostObject.h>
 
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_video.h>
-#include <SDL2/SDL_events.h>
-#include <SDL2/SDL_haptic.h>
+#include <SDL2/SDL_platform.h>
+#include <SDL2/SDL_opengl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 
-#if !defined(__MACOSX__)
-#include <SDL2/SDL_image.h>
-#endif
-
-#if defined(__MACOSX__)
-#include "mac/FindConfigFile.h"
-#endif
-
-#include "LuaState.h"
-#include "loader/level.h"
-
-#include "gl_util.h"
-#include "polygon.h"
-#include "vmath.h"
-#include "controls.h"
-#include "console.h"
-#include "system.h"
-#include "common.h"
-#include "script.h"
-#include "render.h"
-#include "game.h"
-#include "world.h"
-#include "camera.h"
-#include "mesh.h"
-#include "entity.h"
-#include "resource.h"
-#include "gui.h"
-#include "inventory.h"
-#include "audio.h"
-#include "character_controller.h"
-#include "gameflow.h"
-#include "strings.h"
-
-
-SDL_Window             *sdl_window = nullptr;
-SDL_Joystick           *sdl_joystick = nullptr;
-SDL_GameController     *sdl_controller = nullptr;
-SDL_Haptic             *sdl_haptic = nullptr;
-SDL_GLContext           sdl_gl_context = nullptr;
-ALCdevice              *al_device = nullptr;
-ALCcontext             *al_context = nullptr;
-
-EngineControlState control_states{};
-ControlSettings    control_mapper{};
-AudioSettings      audio_settings{};
-
-btScalar           engine_frame_time = 0.0;
-
-Camera             engine_camera;
-World              engine_world;
-
-namespace
-{
-std::vector<btScalar> frame_vertex_buffer;
-size_t                frame_vertex_buffer_size_left = 0;
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+#include <AL/al.h>
+#include <AL/alc.h>
 }
 
-script::MainEngine engine_lua;
+#include "core/system.h"
+#include "core/gl_util.h"
+#include "core/gl_font.h"
+#include "core/console.h"
+#include "core/redblack.h"
+#include "core/vmath.h"
+#include "core/polygon.h"
+#include "core/gl_text.h"
+#include "render/camera.h"
+#include "render/render.h"
+#include "vt/vt_level.h"
+#include "game.h"
+#include "audio.h"
+#include "mesh.h"
+#include "skeletal_model.h"
+#include "gui.h"
+#include "entity.h"
+#include "gameflow.h"
+#include "room.h"
+#include "world.h"
+#include "resource.h"
+#include "script.h"
+#include "engine.h"
+#include "physics.h"
+#include "controls.h"
+#include "trigger.h"
+#include "character_controller.h"
+#include "render/bsp_tree.h"
+#include "image.h"
 
-btDefaultCollisionConfiguration     *bt_engine_collisionConfiguration = nullptr;
-btCollisionDispatcher               *bt_engine_dispatcher = nullptr;
-btGhostPairCallback                 *bt_engine_ghostPairCallback = nullptr;
-btBroadphaseInterface               *bt_engine_overlappingPairCache = nullptr;
-btSequentialImpulseConstraintSolver *bt_engine_solver = nullptr;
-btDiscreteDynamicsWorld             *bt_engine_dynamicsWorld = nullptr;
-btOverlapFilterCallback             *bt_engine_filterCallback = nullptr;
 
-RenderDebugDrawer                    debugDrawer;
+static SDL_Window             *sdl_window     = NULL;
+static SDL_Joystick           *sdl_joystick   = NULL;
+static SDL_GameController     *sdl_controller = NULL;
+static SDL_Haptic             *sdl_haptic     = NULL;
+static SDL_GLContext           sdl_gl_context = 0;
+static ALCdevice              *al_device      = NULL;
+static ALCcontext             *al_context     = NULL;
 
-// Debug globals.
+static volatile int             engine_done   = 0;
+static int                      engine_set_sero_time = 0;
+float time_scale = 1.0f;
 
-btVector3 light_position = { 255.0, 255.0, 8.0 };
-GLfloat cast_ray[6] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+engine_container_p      last_cont = NULL;
+static float            ray_test_point[3] = {0.0f, 0.0f, 0.0f};
 
-EngineContainer* last_cont = nullptr;
+struct engine_control_state_s           control_states = {0};
+struct control_settings_s               control_mapper = {0};
+float                                   engine_frame_time = 0.0;
+
+lua_State                              *engine_lua = NULL;
+struct camera_s                         engine_camera;
+struct camera_state_s                   engine_camera_state;
+
+
+engine_container_p Container_Create()
+{
+    engine_container_p ret;
+
+    ret = (engine_container_p)malloc(sizeof(engine_container_t));
+    ret->next = NULL;
+    ret->object = NULL;
+    ret->object_type = 0;
+    return ret;
+}
+
+
+void Engine_Init_Pre();
+void Engine_Init_Post();
+void Engine_InitGL();
+void Engine_InitAL();
+void Engine_InitSDLVideo();
+void Engine_InitSDLControls();
+void Engine_InitDefaultGlobals();
+
+void Engine_Display();
+void Engine_PollSDLEvents();
+void Engine_Resize(int nominalW, int nominalH, int pixelsW, int pixelsH);
+
+void ShowDebugInfo();
+
+void Engine_Start(const char *config_name)
+{
+    Engine_InitDefaultGlobals();
+    Engine_LoadConfig(config_name);
+
+    // Primary initialization.
+    Engine_Init_Pre();
+
+    // Init generic SDL interfaces.
+    Engine_InitSDLControls();
+    Engine_InitSDLVideo();
+    Engine_InitAL();
+
+    // Additional OpenGL initialization.
+    Engine_InitGL();
+    renderer.DoShaders();
+
+    // Secondary (deferred) initialization.
+    Engine_Init_Post();
+
+    // Make splash screen.
+    Gui_LoadScreenAssignPic("resource/graphics/legal.png");
+
+    // Initial window resize.
+    Engine_Resize(screen_info.w, screen_info.h, screen_info.w, screen_info.h);
+
+    // Clearing up memory for initial level loading.
+    World_Prepare();
+
+    // Setting up mouse.
+    SDL_SetRelativeMouseMode(SDL_TRUE);
+    SDL_WarpMouseInWindow(sdl_window, screen_info.w/2, screen_info.h/2);
+    SDL_ShowCursor(0);
+
+    luaL_dofile(engine_lua, "autoexec.lua");
+}
+
+
+void Engine_Shutdown(int val)
+{
+    renderer.ResetWorld(NULL, 0, NULL, 0);
+    World_Clear();
+
+    if(engine_lua)
+    {
+        lua_close(engine_lua);
+        engine_lua = NULL;
+    }
+
+    Physics_Destroy();
+    Gui_Destroy();
+    Con_Destroy();
+    GLText_Destroy();
+    Sys_Destroy();
+
+    /* no more renderings */
+    SDL_GL_DeleteContext(sdl_gl_context);
+    sdl_gl_context = 0;
+    SDL_DestroyWindow(sdl_window);
+    sdl_window = NULL;
+
+    if(sdl_joystick)
+    {
+        SDL_JoystickClose(sdl_joystick);
+        sdl_joystick = NULL;
+    }
+
+    if(sdl_controller)
+    {
+        SDL_GameControllerClose(sdl_controller);
+        sdl_controller = NULL;
+    }
+
+    if(sdl_haptic)
+    {
+        SDL_HapticClose(sdl_haptic);
+        sdl_haptic = NULL;
+    }
+
+    if(al_context)  // T4Larson <t4larson@gmail.com>: fixed
+    {
+        alcMakeContextCurrent(NULL);
+        alcDestroyContext(al_context);
+        al_context = NULL;
+    }
+
+    if(al_device)
+    {
+        alcCloseDevice(al_device);
+        al_device = NULL;
+    }
+
+    Sys_Destroy();
+    SDL_Quit();
+
+    exit(val);
+}
+
+
+void Engine_SetDone()
+{
+    engine_done = 1;
+}
+
+
+void Engine_InitDefaultGlobals()
+{
+    Sys_InitGlobals();
+    Con_InitGlobals();
+    Controls_InitGlobals();
+    Game_InitGlobals();
+    Audio_InitGlobals();
+}
+
+// First stage of initialization.
+void Engine_Init_Pre()
+{
+    /* Console must be initialized previously! some functions uses CON_AddLine before GL initialization!
+     * Rendering activation may be done later. */
+
+    Sys_Init();
+    GLText_Init();
+    Con_Init();
+    Con_SetExecFunction(Engine_ExecCmd);
+    Script_LuaInit();
+
+    Script_CallVoidFunc(engine_lua, "loadscript_pre", true);
+
+    Gameflow_Init();
+    Cam_Init(&engine_camera);
+    engine_camera_state.state = CAMERA_STATE_NORMAL;
+    engine_camera_state.flyby = NULL;
+    engine_camera_state.sink = NULL;
+    engine_camera_state.shake_value = 0.0f;
+    engine_camera_state.time = 0.0f;
+
+    Physics_Init();
+}
+
+// Second stage of initialization.
+void Engine_Init_Post()
+{
+    Script_CallVoidFunc(engine_lua, "loadscript_post", true);
+
+    Con_InitFont();
+    Gui_Init();
+
+    Con_AddLine("Engine inited!", FONTSTYLE_CONSOLE_EVENT);
+}
+
 
 void Engine_InitGL()
 {
-    glewExperimental = GL_TRUE;
-    glewInit();
+    InitGLExtFuncs();
+    qglClearColor(0.0, 0.0, 0.0, 1.0);
 
-    // GLEW sometimes causes an OpenGL error for no apparent reason. Retrieve and
-    // discard it so it doesn't clog up later logging.
+    qglEnable(GL_DEPTH_TEST);
+    qglDepthFunc(GL_LEQUAL);
 
-    glGetError();
-
-    glClearColor(0.0, 0.0, 0.0, 1.0);
-
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
-
-    if(renderer.settings().antialias)
+    if(renderer.settings.antialias)
     {
-        glEnable(GL_MULTISAMPLE);
+        qglEnable(GL_MULTISAMPLE);
     }
     else
     {
-        glDisable(GL_MULTISAMPLE);
+       qglDisable(GL_MULTISAMPLE);
     }
+
+    // Default state: Vertex array and color array are enabled, all others disabled.. Drawable
+    // items can rely on Vertex array to be enabled (but pointer can be
+    // anything). They have to enable other arrays based on their need and then
+    // return to default state
+    qglEnableClientState(GL_VERTEX_ARRAY);
+    qglEnableClientState(GL_COLOR_ARRAY);
+
+    // function use anyway.
+    qglAlphaFunc(GL_GEQUAL, 0.5);
 }
+
+
+void Engine_InitAL()
+{
+    ALCint paramList[] = {
+        ALC_STEREO_SOURCES,  TR_AUDIO_STREAM_NUMSOURCES,
+        ALC_MONO_SOURCES,   (TR_AUDIO_MAX_CHANNELS - TR_AUDIO_STREAM_NUMSOURCES),
+        ALC_FREQUENCY,       44100, 0};
+
+    Con_Printf("Audio driver: %s", SDL_GetCurrentAudioDriver());
+
+    al_device = alcOpenDevice(NULL);
+    if (!al_device)
+    {
+        Sys_DebugLog(SYS_LOG_FILENAME, "InitAL: No AL audio devices!");
+        return;
+    }
+
+    al_context = alcCreateContext(al_device, paramList);
+    if(!alcMakeContextCurrent(al_context))
+    {
+        Sys_DebugLog(SYS_LOG_FILENAME, "InitAL: AL context is not current!");
+        return;
+    }
+
+    alSpeedOfSound(330.0 * 512.0);
+    alDopplerVelocity(330.0 * 510.0);
+    alDistanceModel(AL_LINEAR_DISTANCE_CLAMPED);
+}
+
+
+void Engine_InitSDLVideo()
+{
+    Uint32 video_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS;
+    PFNGLGETSTRINGPROC lglGetString = NULL;
+
+    if(screen_info.fullscreen)
+    {
+        video_flags |= SDL_WINDOW_FULLSCREEN;
+    }
+    else
+    {
+        video_flags |= (SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
+    }
+
+    ///@TODO: is it really needede for correct work?
+    if(SDL_GL_LoadLibrary(NULL) < 0)
+    {
+        Sys_Error("Could not init OpenGL driver");
+    }
+
+    // Check for correct number of antialias samples.
+    if(renderer.settings.antialias)
+    {
+        GLint maxSamples = 0;
+        PFNGLGETIINTEGERVPROC lglGetIntegerv = NULL;
+        /* I do not know why, but settings of this temporary window (zero position / size) are applied to the main window, ignoring screen settings */
+        sdl_window     = SDL_CreateWindow(NULL, screen_info.x, screen_info.y, screen_info.w, screen_info.h, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+        sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+        SDL_GL_MakeCurrent(sdl_window, sdl_gl_context);
+
+        lglGetIntegerv = (PFNGLGETIINTEGERVPROC)SDL_GL_GetProcAddress("glGetIntegerv");
+        lglGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+        maxSamples = (maxSamples > 16)?(16):(maxSamples);                       // Fix for faulty GL max. sample number.
+
+        if(renderer.settings.antialias_samples > maxSamples)
+        {
+            renderer.settings.antialias_samples = maxSamples;                   // Limit to max.
+            if(maxSamples == 0)
+            {
+                renderer.settings.antialias = 0;
+                Sys_DebugLog(SYS_LOG_FILENAME, "InitSDLVideo: can't use antialiasing");
+            }
+            else
+            {
+                Sys_DebugLog(SYS_LOG_FILENAME, "InitSDLVideo: wrong AA sample number, using %d", maxSamples);
+            }
+        }
+
+        SDL_GL_DeleteContext(sdl_gl_context);
+        SDL_DestroyWindow(sdl_window);
+
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, renderer.settings.antialias);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, renderer.settings.antialias_samples);
+    }
+    else
+    {
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
+    }
+
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, renderer.settings.z_depth);
+#if STENCIL_FRUSTUM
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#endif
+    // set the opengl context version
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+
+    sdl_window = SDL_CreateWindow("OpenTomb", screen_info.x, screen_info.y, screen_info.w, screen_info.h, video_flags);
+    sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+    SDL_GL_MakeCurrent(sdl_window, sdl_gl_context);
+
+    lglGetString = (PFNGLGETSTRINGPROC)SDL_GL_GetProcAddress("glGetString");
+    Con_AddLine((const char*)lglGetString(GL_VENDOR), FONTSTYLE_CONSOLE_INFO);
+    Con_AddLine((const char*)lglGetString(GL_RENDERER), FONTSTYLE_CONSOLE_INFO);
+    Con_Printf("OpenGL version %s", lglGetString(GL_VERSION));
+    Con_AddLine((const char*)lglGetString(GL_SHADING_LANGUAGE_VERSION), FONTSTYLE_CONSOLE_INFO);
+}
+
 
 void Engine_InitSDLControls()
 {
-    Uint32 init_flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS; // These flags are used in any case.
+    int    NumJoysticks;
+    Uint32 init_flags    = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS;   // These flags are used in any case.
 
     if(control_mapper.use_joy == 1)
     {
-        init_flags |= SDL_INIT_GAMECONTROLLER;  // Update init flags for joystick.
+        init_flags |= SDL_INIT_GAMECONTROLLER;                                  // Update init flags for joystick.
 
         if(control_mapper.joy_rumble)
         {
-            init_flags |= SDL_INIT_HAPTIC;      // Update init flags for force feedback.
+            init_flags |= SDL_INIT_HAPTIC;                                      // Update init flags for force feedback.
         }
 
         SDL_Init(init_flags);
 
-        int NumJoysticks = SDL_NumJoysticks();
-
+        NumJoysticks = SDL_NumJoysticks();
         if((NumJoysticks < 1) || ((NumJoysticks - 1) < control_mapper.joy_number))
         {
-            Sys_DebugLog(LOG_FILENAME, "Error: there is no joystick #%d present.", control_mapper.joy_number);
+            Sys_DebugLog(SYS_LOG_FILENAME, "Error: there is no joystick #%d present.", control_mapper.joy_number);
             return;
         }
 
@@ -149,7 +418,7 @@ void Engine_InitSDLControls()
 
             if(!sdl_controller)
             {
-                Sys_DebugLog(LOG_FILENAME, "Error: can't open game controller #%d.", control_mapper.joy_number);
+                Sys_DebugLog(SYS_LOG_FILENAME, "Error: can't open game controller #%d.", control_mapper.joy_number);
                 SDL_GameControllerEventState(SDL_DISABLE);                      // If controller init failed, close state.
                 control_mapper.use_joy = 0;
             }
@@ -158,7 +427,7 @@ void Engine_InitSDLControls()
                 sdl_haptic = SDL_HapticOpenFromJoystick(SDL_GameControllerGetJoystick(sdl_controller));
                 if(!sdl_haptic)
                 {
-                    Sys_DebugLog(LOG_FILENAME, "Error: can't initialize haptic from game controller #%d.", control_mapper.joy_number);
+                    Sys_DebugLog(SYS_LOG_FILENAME, "Error: can't initialize haptic from game controller #%d.", control_mapper.joy_number);
                 }
             }
         }
@@ -169,7 +438,7 @@ void Engine_InitSDLControls()
 
             if(!sdl_joystick)
             {
-                Sys_DebugLog(LOG_FILENAME, "Error: can't open joystick #%d.", control_mapper.joy_number);
+                Sys_DebugLog(SYS_LOG_FILENAME, "Error: can't open joystick #%d.", control_mapper.joy_number);
                 SDL_JoystickEventState(SDL_DISABLE);                            // If joystick init failed, close state.
                 control_mapper.use_joy = 0;
             }
@@ -178,7 +447,7 @@ void Engine_InitSDLControls()
                 sdl_haptic = SDL_HapticOpenFromJoystick(sdl_joystick);
                 if(!sdl_haptic)
                 {
-                    Sys_DebugLog(LOG_FILENAME, "Error: can't initialize haptic from joystick #%d.", control_mapper.joy_number);
+                    Sys_DebugLog(SYS_LOG_FILENAME, "Error: can't initialize haptic from joystick #%d.", control_mapper.joy_number);
                 }
             }
         }
@@ -195,1060 +464,25 @@ void Engine_InitSDLControls()
     }
 }
 
-void Engine_InitSDLVideo()
+
+void Engine_LoadConfig(const char *filename)
 {
-    Uint32 video_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS;
-
-    if(screen_info.FS_flag)
+    if((filename != NULL) && Sys_FileFound(filename, 0))
     {
-        video_flags |= SDL_WINDOW_FULLSCREEN;
-    }
-    else
-    {
-        video_flags |= (SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
-    }
-
-    ///@TODO: is it really needed for correct work?
-
-    if(SDL_GL_LoadLibrary(nullptr) < 0)
-    {
-        Sys_Error("Could not init OpenGL driver");
-    }
-
-    if(renderer.settings().use_gl3)
-    {
-        /* Request opengl 3.2 context. */
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-        SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-    }
-
-    // Create temporary SDL window and GL context for checking capabilities.
-
-    sdl_window = SDL_CreateWindow(nullptr, screen_info.x, screen_info.y, screen_info.w, screen_info.h, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
-    sdl_gl_context = SDL_GL_CreateContext(sdl_window);
-
-    if(!sdl_gl_context)
-        Sys_Error("Can't create OpenGL context - shutting down. Try to disable use_gl3 option in config.");
-
-    assert(sdl_gl_context);
-    SDL_GL_MakeCurrent(sdl_window, sdl_gl_context);
-
-    // Check for correct number of antialias samples.
-
-    if(renderer.settings().antialias)
-    {
-        GLint maxSamples = 0;
-        glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
-        maxSamples = (maxSamples > 16) ? (16) : (maxSamples);   // Fix for faulty GL max. sample number.
-
-        if(renderer.settings().antialias_samples > maxSamples)
+        lua_State *lua = luaL_newstate();
+        if(lua != NULL)
         {
-            if(maxSamples == 0)
-            {
-                renderer.settings().antialias = 0;
-                renderer.settings().antialias_samples = 0;
-                Sys_DebugLog(LOG_FILENAME, "InitSDLVideo: can't use antialiasing");
-            }
-            else
-            {
-                renderer.settings().antialias_samples = maxSamples;   // Limit to max.
-                Sys_DebugLog(LOG_FILENAME, "InitSDLVideo: wrong AA sample number, using %d", maxSamples);
-            }
+            luaL_openlibs(lua);
+            lua_register(lua, "bind", lua_BindKey);                             // get and set key bindings
+            luaL_dofile(lua, filename);
+
+            Script_ParseScreen(lua, &screen_info);
+            Script_ParseRender(lua, &renderer.settings);
+            Script_ParseAudio(lua, &audio_settings);
+            Script_ParseConsole(lua);
+            Script_ParseControls(lua, &control_mapper);
+            lua_close(lua);
         }
-
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, renderer.settings().antialias);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, renderer.settings().antialias_samples);
-    }
-    else
-    {
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-    }
-
-    // Remove temporary GL context and SDL window.
-
-    SDL_GL_DeleteContext(sdl_gl_context);
-    SDL_DestroyWindow(sdl_window);
-
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, renderer.settings().z_depth);
-
-#if STENCIL_FRUSTUM
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-#endif
-
-    sdl_window = SDL_CreateWindow("OpenTomb", screen_info.x, screen_info.y, screen_info.w, screen_info.h, video_flags);
-    sdl_gl_context = SDL_GL_CreateContext(sdl_window);
-    SDL_GL_MakeCurrent(sdl_window, sdl_gl_context);
-
-    if(SDL_GL_SetSwapInterval(screen_info.vsync))
-        Sys_DebugLog(LOG_FILENAME, "Cannot set VSYNC: %s\n", SDL_GetError());
-
-    ConsoleInfo::instance().addLine(reinterpret_cast<const char*>(glGetString(GL_VENDOR)), FontStyle::ConsoleInfo);
-    ConsoleInfo::instance().addLine(reinterpret_cast<const char*>(glGetString(GL_RENDERER)), FontStyle::ConsoleInfo);
-    std::string version = "OpenGL version ";
-    version += reinterpret_cast<const char*>(glGetString(GL_VERSION));
-    ConsoleInfo::instance().addLine(version, FontStyle::ConsoleInfo);
-    ConsoleInfo::instance().addLine(reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION)), FontStyle::ConsoleInfo);
-}
-
-#if !defined(__MACOSX__)
-void Engine_InitSDLImage()
-{
-    int flags = IMG_INIT_JPG | IMG_INIT_PNG;
-    int init = IMG_Init(flags);
-
-    if((init & flags) != flags)
-    {
-        Sys_DebugLog(LOG_FILENAME, "SDL_Image error: failed to initialize JPG and/or PNG support.");
-    }
-}
-#endif
-
-void Engine_InitAL()
-{
-#if !NO_AUDIO
-
-    ALCint paramList[] = {
-        ALC_STEREO_SOURCES,  TR_AUDIO_STREAM_NUMSOURCES,
-        ALC_MONO_SOURCES,   (TR_AUDIO_MAX_CHANNELS - TR_AUDIO_STREAM_NUMSOURCES),
-        ALC_FREQUENCY,       44100, 0 };
-
-    Sys_DebugLog(LOG_FILENAME, "Probing OpenAL devices...");
-
-    const char *devlist = alcGetString(nullptr, ALC_DEVICE_SPECIFIER);
-
-    if(!devlist)
-    {
-        Sys_DebugLog(LOG_FILENAME, "InitAL: No AL audio devices!");
-        return;
-    }
-
-    while(*devlist)
-    {
-        Sys_DebugLog(LOG_FILENAME, " Device: %s", devlist);
-        ALCdevice* dev = alcOpenDevice(devlist);
-
-        if(audio_settings.use_effects)
-        {
-            if(alcIsExtensionPresent(dev, ALC_EXT_EFX_NAME) == ALC_TRUE)
-            {
-                Sys_DebugLog(LOG_FILENAME, " EFX supported!");
-                al_device = dev;
-                al_context = alcCreateContext(al_device, paramList);
-                // fails e.g. with Rapture3D, where EFX is supported
-                if(al_context)
-                {
-                    break;
-                }
-            }
-            alcCloseDevice(dev);
-            devlist += std::strlen(devlist) + 1;
-        }
-        else
-        {
-            al_device = dev;
-            al_context = alcCreateContext(al_device, paramList);
-            break;
-        }
-    }
-
-    if(!al_context)
-    {
-        Sys_DebugLog(LOG_FILENAME, " Failed to create OpenAL context.");
-        alcCloseDevice(al_device);
-        al_device = nullptr;
-        return;
-    }
-
-    alcMakeContextCurrent(al_context);
-
-    Audio_LoadALExtFunctions(al_device);
-
-    std::string driver = "OpenAL library: ";
-    driver += alcGetString(al_device, ALC_DEVICE_SPECIFIER);
-    ConsoleInfo::instance().addLine(driver, FontStyle::ConsoleInfo);
-
-    alSpeedOfSound(330.0 * 512.0);
-    alDopplerVelocity(330.0 * 510.0);
-    alDistanceModel(AL_LINEAR_DISTANCE_CLAMPED);
-#endif
-}
-
-void Engine_Start()
-{
-#if defined(__MACOSX__)
-    FindConfigFile();
-#endif
-
-    // Set defaults parameters and load config file.
-    Engine_InitConfig("config.lua");
-
-    // Primary initialization.
-    Engine_Init_Pre();
-
-    // Init generic SDL interfaces.
-    Engine_InitSDLControls();
-    Engine_InitSDLVideo();
-
-#if !defined(__MACOSX__)
-    Engine_InitSDLImage();
-#endif
-
-    // Additional OpenGL initialization.
-    Engine_InitGL();
-    renderer.doShaders();
-
-    // Secondary (deferred) initialization.
-    Engine_Init_Post();
-
-    // Initial window resize.
-    Engine_Resize(screen_info.w, screen_info.h, screen_info.w, screen_info.h);
-
-    // OpenAL initialization.
-    Engine_InitAL();
-
-    ConsoleInfo::instance().notify(SYSNOTE_ENGINE_INITED);
-
-    // Clearing up memory for initial level loading.
-    engine_world.prepare();
-
-    SDL_SetRelativeMouseMode(SDL_TRUE);
-
-    // Make splash screen.
-    Gui_FadeAssignPic(FaderType::LoadScreen, "resource/graphics/legal.png");
-    Gui_FadeStart(FaderType::LoadScreen, FaderDir::Out);
-
-    engine_lua.doFile("autoexec.lua");
-}
-
-void Engine_Display()
-{
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);//| GL_ACCUM_BUFFER_BIT);
-
-    engine_camera.apply();
-    engine_camera.recalcClipPlanes();
-    // GL_VERTEX_ARRAY | GL_COLOR_ARRAY
-    if(screen_info.show_debuginfo)
-    {
-        Engine_ShowDebugInfo();
-    }
-
-    glFrontFace(GL_CW);
-
-    renderer.genWorldList();
-    renderer.drawList();
-
-    //glDisable(GL_CULL_FACE);
-    //Render_DrawAxis(10000.0);
-    /*if(engine_world.character)
-    {
-        glPushMatrix();
-        glTranslatef(engine_world.character->transform[12], engine_world.character->transform[13], engine_world.character->transform[14]);
-        Render_DrawAxis(1000.0);
-        glPopMatrix();
-    }*/
-
-    Gui_SwitchGLMode(1);
-    {
-        Gui_DrawNotifier();
-        if(engine_world.character && main_inventory_manager)
-        {
-            Gui_DrawInventory();
-        }
-    }
-
-    Gui_Render();
-    Gui_SwitchGLMode(0);
-
-    renderer.drawListDebugLines();
-
-    SDL_GL_SwapWindow(sdl_window);
-}
-
-void Engine_Resize(int nominalW, int nominalH, int pixelsW, int pixelsH)
-{
-    screen_info.w = nominalW;
-    screen_info.h = nominalH;
-
-    screen_info.w_unit = static_cast<float>(nominalW) / ScreenMeteringResolution;
-    screen_info.h_unit = static_cast<float>(nominalH) / ScreenMeteringResolution;
-    screen_info.scale_factor = (screen_info.w < screen_info.h) ? (screen_info.h_unit) : (screen_info.w_unit);
-
-    Gui_Resize();
-
-    engine_camera.setFovAspect(screen_info.fov, static_cast<btScalar>(nominalW) / static_cast<btScalar>(nominalH));
-    engine_camera.recalcClipPlanes();
-
-    glViewport(0, 0, pixelsW, pixelsH);
-}
-
-extern TextLine system_fps;
-
-namespace
-{
-    int fpsCycles = 0;
-    btScalar fpsTime = 0;
-
-    void fpsCycle(btScalar time)
-    {
-        if(fpsCycles < 20)
-        {
-            fpsCycles++;
-            fpsTime += time;
-        }
-        else
-        {
-            screen_info.fps = (20.0f / fpsTime);
-            char tmp[16];
-            snprintf(tmp, 16, "%.1f", screen_info.fps);
-            system_fps.text = tmp;
-            fpsCycles = 0;
-            fpsTime = 0.0;
-        }
-    }
-}
-
-void Engine_Frame(btScalar time)
-{
-    if(time > 0.1)
-    {
-        time = 0.1f;
-    }
-
-    engine_frame_time = time;
-    fpsCycle(time);
-
-    Game_Frame(time);
-    Gameflow_Manager.Do();
-}
-
-void Engine_ShowDebugInfo()
-{
-    GLfloat color_array[] = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
-
-    light_position = engine_camera.getPosition();
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glLineWidth(2.0);
-    glVertexPointer(3, GL_FLOAT, 0, cast_ray);
-    glColorPointer(3, GL_FLOAT, 0, color_array);
-    glDrawArrays(GL_LINES, 0, 2);
-
-    if(std::shared_ptr<Character> ent = engine_world.character)
-    {
-        /*height_info_p fc = &ent->character->height_info
-        txt = Gui_OutTextXY(20.0 / screen_info.w, 80.0 / screen_info.w, "Z_min = %d, Z_max = %d, W = %d", (int)fc->floor_point[2], (int)fc->ceiling_point[2], (int)fc->water_level);
-        */
-        Gui_OutTextXY(30.0, 30.0, "last_anim = %03d, curr_anim = %03d, next_anim = %03d, last_st = %03d, next_st = %03d, speed=%f frame=%d",
-                      ent->m_bf.animations.last_animation,
-                      ent->m_bf.animations.current_animation,
-                      ent->m_bf.animations.next_animation,
-                      ent->m_bf.animations.last_state,
-                      ent->m_bf.animations.next_state,
-                      engine_world.character->m_currentSpeed,
-                      ent->m_bf.animations.current_frame
-                      );
-        //Gui_OutTextXY(30.0, 30.0, "curr_anim = %03d, next_anim = %03d, curr_frame = %03d, next_frame = %03d", ent->bf.animations.current_animation, ent->bf.animations.next_animation, ent->bf.animations.current_frame, ent->bf.animations.next_frame);
-        Gui_OutTextXY(20, 8, "posX = %f, posY = %f, posZ = %f", ent->m_transform.getOrigin()[0], ent->m_transform.getOrigin()[1], ent->m_transform.getOrigin()[2]);
-    }
-
-    if(last_cont != nullptr)
-    {
-        switch(last_cont->object_type)
-        {
-            case OBJECT_ENTITY:
-                Gui_OutTextXY(30.0, 60.0, "cont_entity: id = %d, model = %d", static_cast<Entity*>(last_cont->object)->id(), static_cast<Entity*>(last_cont->object)->m_bf.animations.model->id);
-                break;
-
-            case OBJECT_STATIC_MESH:
-                Gui_OutTextXY(30.0, 60.0, "cont_static: id = %d", static_cast<StaticMesh*>(last_cont->object)->object_id);
-                break;
-
-            case OBJECT_ROOM_BASE:
-                Gui_OutTextXY(30.0, 60.0, "cont_room: id = %d", static_cast<Room*>(last_cont->object)->id);
-                break;
-        }
-    }
-
-    if(engine_camera.m_currentRoom != nullptr)
-    {
-        RoomSector* rs = engine_camera.m_currentRoom->getSectorRaw(engine_camera.getPosition());
-        if(rs != nullptr)
-        {
-            Gui_OutTextXY(30.0, 90.0, "room = (id = %d, sx = %d, sy = %d)", engine_camera.m_currentRoom->id, rs->index_x, rs->index_y);
-            Gui_OutTextXY(30.0, 120.0, "room_below = %d, room_above = %d", (rs->sector_below != nullptr) ? (rs->sector_below->owner_room->id) : (-1), (rs->sector_above != nullptr) ? (rs->sector_above->owner_room->id) : (-1));
-        }
-    }
-    Gui_OutTextXY(30.0, 150.0, "cam_pos = (%.1f, %.1f, %.1f)", engine_camera.getPosition()[0], engine_camera.getPosition()[1], engine_camera.getPosition()[2]);
-}
-
-/**
- * overlapping room collision filter
- */
-void Engine_RoomNearCallback(btBroadphasePair& collisionPair, btCollisionDispatcher& dispatcher, const btDispatcherInfo& dispatchInfo)
-{
-    EngineContainer* c0, *c1;
-
-    c0 = static_cast<EngineContainer*>(static_cast<btCollisionObject*>(collisionPair.m_pProxy0->m_clientObject)->getUserPointer());
-    Room* r0 = c0 ? c0->room : nullptr;
-    c1 = static_cast<EngineContainer*>(static_cast<btCollisionObject*>(collisionPair.m_pProxy1->m_clientObject)->getUserPointer());
-    Room* r1 = c1 ? c1->room : nullptr;
-
-    if(c1 && c1 == c0)
-    {
-        if(static_cast<btCollisionObject*>(collisionPair.m_pProxy0->m_clientObject)->isStaticOrKinematicObject() ||
-           static_cast<btCollisionObject*>(collisionPair.m_pProxy1->m_clientObject)->isStaticOrKinematicObject())
-        {
-            return;                                                             // No self interaction
-        }
-        dispatcher.defaultNearCallback(collisionPair, dispatcher, dispatchInfo);
-        return;
-    }
-
-    if(!r0 && !r1)
-    {
-        dispatcher.defaultNearCallback(collisionPair, dispatcher, dispatchInfo);// Both are out of rooms
-        return;
-    }
-
-    if(r0 && r1)
-    {
-        if(r0->isInNearRoomsList(*r1))
-        {
-            dispatcher.defaultNearCallback(collisionPair, dispatcher, dispatchInfo);
-            return;
-        }
-        else
-        {
-            return;
-        }
-    }
-}
-
-/**
- * update current room of bullet object
- */
-void Engine_InternalTickCallback(btDynamicsWorld *world, btScalar /*timeStep*/)
-{
-    for(int i = world->getNumCollisionObjects() - 1; i >= 0; i--)
-    {
-        assert(i >= 0 && i < bt_engine_dynamicsWorld->getCollisionObjectArray().size());
-        btCollisionObject* obj = bt_engine_dynamicsWorld->getCollisionObjectArray()[i];
-        btRigidBody* body = btRigidBody::upcast(obj);
-        if(body && !body->isStaticObject() && body->getMotionState())
-        {
-            btTransform trans;
-            body->getMotionState()->getWorldTransform(trans);
-            EngineContainer* cont = static_cast<EngineContainer*>(body->getUserPointer());
-            if(cont && (cont->object_type == OBJECT_BULLET_MISC))
-            {
-                cont->room = Room_FindPosCogerrence(trans.getOrigin(), cont->room);
-            }
-        }
-    }
-}
-
-void Engine_InitDefaultGlobals()
-{
-    ConsoleInfo::instance().initGlobals();
-    Controls_InitGlobals();
-    Game_InitGlobals();
-    renderer.initGlobals();
-    Audio_InitGlobals();
-}
-
-// First stage of initialization.
-
-void Engine_Init_Pre()
-{
-    /* Console must be initialized previously! some functions uses ConsoleInfo::instance().addLine before GL initialization!
-     * Rendering activation may be done later. */
-
-    Gui_InitFontManager();
-    ConsoleInfo::instance().init();
-
-    engine_lua["loadscript_pre"]();
-
-    Gameflow_Manager.Init();
-
-    frame_vertex_buffer.resize(INIT_FRAME_VERTEX_BUFFER_SIZE);
-    frame_vertex_buffer_size_left = frame_vertex_buffer.size();
-
-    ConsoleInfo::instance().setCompletionItems(engine_lua.getGlobals());
-
-    Com_Init();
-    renderer.init();
-    renderer.setCamera(&engine_camera);
-
-    Engine_InitBullet();
-}
-
-// Second stage of initialization.
-
-void Engine_Init_Post()
-{
-    engine_lua["loadscript_post"]();
-
-    ConsoleInfo::instance().initFonts();
-
-    Gui_Init();
-    Sys_Init();
-}
-
-// Bullet Physics initialization.
-
-void Engine_InitBullet()
-{
-    ///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
-    bt_engine_collisionConfiguration = new btDefaultCollisionConfiguration();
-
-    ///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
-    bt_engine_dispatcher = new btCollisionDispatcher(bt_engine_collisionConfiguration);
-    bt_engine_dispatcher->setNearCallback(Engine_RoomNearCallback);
-
-    ///btDbvtBroadphase is a good general purpose broadphase. You can also try out btAxis3Sweep.
-    bt_engine_overlappingPairCache = new btDbvtBroadphase();
-    bt_engine_ghostPairCallback = new btGhostPairCallback();
-    bt_engine_overlappingPairCache->getOverlappingPairCache()->setInternalGhostPairCallback(bt_engine_ghostPairCallback);
-
-    ///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
-    bt_engine_solver = new btSequentialImpulseConstraintSolver;
-
-    bt_engine_dynamicsWorld = new btDiscreteDynamicsWorld(bt_engine_dispatcher, bt_engine_overlappingPairCache, bt_engine_solver, bt_engine_collisionConfiguration);
-    bt_engine_dynamicsWorld->setInternalTickCallback(Engine_InternalTickCallback);
-    bt_engine_dynamicsWorld->setGravity(btVector3(0, 0, -4500.0));
-
-    debugDrawer.setDebugMode(btIDebugDraw::DBG_DrawWireframe | btIDebugDraw::DBG_DrawConstraints);
-    bt_engine_dynamicsWorld->setDebugDrawer(&debugDrawer);
-    //bt_engine_dynamicsWorld->getPairCache()->setInternalGhostPairCallback(bt_engine_filterCallback);
-}
-
-void Engine_DumpRoom(Room* r)
-{
-    if(r != nullptr)
-    {
-        Sys_DebugLog("room_dump.txt", "ROOM = %d, (%d x %d), bottom = %g, top = %g, pos(%g, %g)", r->id, r->sectors_x, r->sectors_y, r->bb_min[2], r->bb_max[2], r->transform.getOrigin()[0], r->transform.getOrigin()[1]);
-        Sys_DebugLog("room_dump.txt", "flag = 0x%X, alt_room = %d, base_room = %d", r->flags, (r->alternate_room != nullptr) ? (r->alternate_room->id) : (-1), (r->base_room != nullptr) ? (r->base_room->id) : (-1));
-        for(const RoomSector& rs : r->sectors)
-        {
-            Sys_DebugLog("room_dump.txt", "(%d,%d)\tfloor = %d, ceiling = %d, portal = %d", rs.index_x, rs.index_y, rs.floor, rs.ceiling, rs.portal_to_room);
-        }
-        for(auto sm : r->static_mesh)
-        {
-            Sys_DebugLog("room_dump.txt", "static_mesh = %d", sm->object_id);
-        }
-        for(const std::shared_ptr<EngineContainer>& cont : r->containers)
-        {
-            if(cont->object_type == OBJECT_ENTITY)
-            {
-                Entity* ent = static_cast<Entity*>(cont->object);
-                Sys_DebugLog("room_dump.txt", "entity: id = %d, model = %d", ent->id(), ent->m_bf.animations.model->id);
-            }
-        }
-    }
-}
-
-void Engine_Destroy()
-{
-    renderer.empty();
-    //ConsoleInfo::instance().destroy();
-    Com_Destroy();
-    Sys_Destroy();
-
-    //delete dynamics world
-    delete bt_engine_dynamicsWorld;
-
-    //delete solver
-    delete bt_engine_solver;
-
-    //delete broadphase
-    delete bt_engine_overlappingPairCache;
-
-    //delete dispatcher
-    delete bt_engine_dispatcher;
-
-    delete bt_engine_collisionConfiguration;
-
-    delete bt_engine_ghostPairCallback;
-
-    Gui_Destroy();
-}
-
-void Engine_Shutdown(int val)
-{
-    engine_lua.clearTasks();
-    renderer.empty();
-    engine_world.empty();
-    Engine_Destroy();
-
-    /* no more renderings */
-    SDL_GL_DeleteContext(sdl_gl_context);
-    SDL_DestroyWindow(sdl_window);
-
-    if(sdl_joystick)
-    {
-        SDL_JoystickClose(sdl_joystick);
-    }
-
-    if(sdl_controller)
-    {
-        SDL_GameControllerClose(sdl_controller);
-    }
-
-    if(sdl_haptic)
-    {
-        SDL_HapticClose(sdl_haptic);
-    }
-
-    if(al_context)  // T4Larson <t4larson@gmail.com>: fixed
-    {
-        alcMakeContextCurrent(nullptr);
-        alcDestroyContext(al_context);
-    }
-
-    if(al_device)
-    {
-        alcCloseDevice(al_device);
-    }
-
-    /* free temporary memory */
-    frame_vertex_buffer.clear();
-    frame_vertex_buffer_size_left = 0;
-
-#if !defined(__MACOSX__)
-    IMG_Quit();
-#endif
-    SDL_Quit();
-
-    exit(val);
-}
-
-bool Engine_FileFound(const std::string& name, bool Write)
-{
-    FILE *ff;
-
-    if(Write)
-    {
-        ff = fopen(name.c_str(), "ab");
-    }
-    else
-    {
-        ff = fopen(name.c_str(), "rb");
-    }
-
-    if(!ff)
-    {
-        return false;
-    }
-    else
-    {
-        fclose(ff);
-        return true;
-    }
-}
-
-int Engine_GetLevelFormat(const std::string& /*name*/)
-{
-    // PLACEHOLDER: Currently, only PC levels are supported.
-
-    return LEVEL_FORMAT_PC;
-}
-
-std::string Engine_GetLevelName(const std::string& path)
-{
-    if(path.empty())
-    {
-        return{};
-    }
-
-    size_t ext = path.find_last_of(".");
-    assert(ext != std::string::npos);
-
-    size_t start = path.find_last_of("\\/");
-    if(start == std::string::npos)
-        start = 0;
-    else
-        ++start;
-
-    return path.substr(start, ext - start);
-}
-
-std::string Engine_GetAutoexecName(loader::Game game_version, const std::string& postfix)
-{
-    std::string level_name = Engine_GetLevelName(Gameflow_Manager.getLevelPath());
-
-    std::string name = "scripts/autoexec/";
-
-    if(game_version < loader::Game::TR2)
-    {
-        name += "tr1/";
-    }
-    else if(game_version < loader::Game::TR3)
-    {
-        name += "tr2/";
-    }
-    else if(game_version < loader::Game::TR4)
-    {
-        name += "tr3/";
-    }
-    else if(game_version < loader::Game::TR5)
-    {
-        name += "tr4/";
-    }
-    else
-    {
-        name += "tr5/";
-    }
-
-    for(char& c : level_name)
-    {
-        c = std::toupper(c);
-    }
-
-    name += level_name;
-    name += postfix;
-    name += ".lua";
-    return name;
-}
-
-bool Engine_LoadPCLevel(const std::string& name)
-{
-    std::unique_ptr<loader::Level> loader = loader::Level::createLoader(name, loader::Game::Unknown);
-    if(!loader)
-        return false;
-
-    loader->load();
-
-    TR_GenWorld(&engine_world, loader);
-
-    std::string buf = Engine_GetLevelName(name);
-
-    ConsoleInfo::instance().notify(SYSNOTE_LOADED_PC_LEVEL);
-    ConsoleInfo::instance().notify(SYSNOTE_ENGINE_VERSION, static_cast<int>(loader->m_gameVersion), buf.c_str());
-    ConsoleInfo::instance().notify(SYSNOTE_NUM_ROOMS, engine_world.rooms.size());
-
-    return true;
-}
-
-int Engine_LoadMap(const std::string& name)
-{
-    if(!Engine_FileFound(name))
-    {
-        ConsoleInfo::instance().warning(SYSWARN_FILE_NOT_FOUND, name.c_str());
-        return 0;
-    }
-
-    Gui_DrawLoadScreen(0);
-
-    engine_camera.m_currentRoom = nullptr;
-
-    renderer.hideSkyBox();
-    renderer.resetWorld();
-
-    Gameflow_Manager.setLevelPath(name);          // it is needed for "not in the game" levels or correct saves loading.
-
-    Gui_DrawLoadScreen(50);
-
-    engine_world.empty();
-    engine_world.prepare();
-
-    engine_lua.clean();
-
-    Audio_Init();
-
-    Gui_DrawLoadScreen(100);
-
-    // Here we can place different platform-specific level loading routines.
-
-    switch(Engine_GetLevelFormat(name))
-    {
-        case LEVEL_FORMAT_PC:
-            if(Engine_LoadPCLevel(name) == false) return 0;
-            break;
-
-        case LEVEL_FORMAT_PSX:
-            break;
-
-        case LEVEL_FORMAT_DC:
-            break;
-
-        case LEVEL_FORMAT_OPENTOMB:
-            break;
-
-        default:
-            break;
-    }
-
-    engine_world.id = 0;
-    engine_world.name = nullptr;
-    engine_world.type = 0;
-
-    Game_Prepare();
-
-    engine_lua.prepare();
-
-    renderer.setWorld(&engine_world);
-
-    Gui_DrawLoadScreen(1000);
-
-    Gui_FadeStart(FaderType::LoadScreen, FaderDir::In);
-    Gui_NotifierStop();
-
-    return 1;
-}
-
-int Engine_ExecCmd(const char *ch)
-{
-    std::vector<char> token(ConsoleInfo::instance().lineSize());
-    RoomSector* sect;
-    FILE *f;
-
-    while(ch != nullptr)
-    {
-        const char *pch = ch;
-
-        ch = script::MainEngine::parse_token(ch, token.data());
-        if(!strcmp(token.data(), "help"))
-        {
-            for(size_t i = SYSNOTE_COMMAND_HELP1; i <= SYSNOTE_COMMAND_HELP15; i++)
-            {
-                ConsoleInfo::instance().notify(i);
-            }
-        }
-        else if(!strcmp(token.data(), "goto"))
-        {
-            control_states.free_look = true;
-            const auto x = script::MainEngine::parseFloat(&ch);
-            const auto y = script::MainEngine::parseFloat(&ch);
-            const auto z = script::MainEngine::parseFloat(&ch);
-            renderer.camera()->setPosition({ x, y, z });
-            return 1;
-        }
-        else if(!strcmp(token.data(), "save"))
-        {
-            ch = script::MainEngine::parse_token(ch, token.data());
-            if(NULL != ch)
-            {
-                Game_Save(token.data());
-            }
-            return 1;
-        }
-        else if(!strcmp(token.data(), "load"))
-        {
-            ch = script::MainEngine::parse_token(ch, token.data());
-            if(NULL != ch)
-            {
-                Game_Load(token.data());
-            }
-            return 1;
-        }
-        else if(!strcmp(token.data(), "exit"))
-        {
-            Engine_Shutdown(0);
-            return 1;
-        }
-        else if(!strcmp(token.data(), "cls"))
-        {
-            ConsoleInfo::instance().clean();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "spacing"))
-        {
-            ch = script::MainEngine::parse_token(ch, token.data());
-            if(NULL == ch)
-            {
-                ConsoleInfo::instance().notify(SYSNOTE_CONSOLE_SPACING, ConsoleInfo::instance().spacing());
-                return 1;
-            }
-            ConsoleInfo::instance().setLineInterval(atof(token.data()));
-            return 1;
-        }
-        else if(!strcmp(token.data(), "showing_lines"))
-        {
-            ch = script::MainEngine::parse_token(ch, token.data());
-            if(NULL == ch)
-            {
-                ConsoleInfo::instance().notify(SYSNOTE_CONSOLE_LINECOUNT, ConsoleInfo::instance().visibleLines());
-                return 1;
-            }
-            else
-            {
-                const auto val = atoi(token.data());
-                if((val >=2 ) && (val <= screen_info.h/ConsoleInfo::instance().lineHeight()))
-                {
-                    ConsoleInfo::instance().setVisibleLines(val);
-                    ConsoleInfo::instance().setCursorY(screen_info.h - ConsoleInfo::instance().lineHeight() * ConsoleInfo::instance().visibleLines());
-                }
-                else
-                {
-                    ConsoleInfo::instance().warning(SYSWARN_INVALID_LINECOUNT);
-                }
-            }
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_wireframe"))
-        {
-            renderer.toggleWireframe();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_points"))
-        {
-            renderer.toggleDrawPoints();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_coll"))
-        {
-            renderer.toggleDrawColl();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_normals"))
-        {
-            renderer.toggleDrawNormals();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_portals"))
-        {
-            renderer.toggleDrawPortals();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_frustums"))
-        {
-            renderer.toggleDrawFrustums();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_room_boxes"))
-        {
-            renderer.toggleDrawRoomBoxes();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_boxes"))
-        {
-            renderer.toggleDrawBoxes();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_axis"))
-        {
-            renderer.toggleDrawAxis();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_allmodels"))
-        {
-            renderer.toggleDrawAllModels();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_dummy_statics"))
-        {
-            renderer.toggleDrawDummyStatics();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "r_skip_room"))
-        {
-            renderer.toggleSkipRoom();
-            return 1;
-        }
-        else if(!strcmp(token.data(), "room_info"))
-        {
-            if(Room* r = renderer.camera()->m_currentRoom)
-            {
-                sect = r->getSectorXYZ(renderer.camera()->getPosition());
-                ConsoleInfo::instance().printf("ID = %d, x_sect = %d, y_sect = %d", r->id, r->sectors_x, r->sectors_y);
-                if(sect)
-                {
-                    ConsoleInfo::instance().printf("sect(%d, %d), inpenitrable = %d, r_up = %d, r_down = %d", sect->index_x, sect->index_y,
-                                                   static_cast<int>(sect->ceiling == TR_METERING_WALLHEIGHT || sect->floor == TR_METERING_WALLHEIGHT), static_cast<int>(sect->sector_above != nullptr), static_cast<int>(sect->sector_below != nullptr));
-                    for(uint32_t i = 0; i < sect->owner_room->static_mesh.size(); i++)
-                    {
-                        ConsoleInfo::instance().printf("static[%d].object_id = %d", i, sect->owner_room->static_mesh[i]->object_id);
-                    }
-                    for(const std::shared_ptr<EngineContainer>& cont : sect->owner_room->containers)
-                    {
-                        if(cont->object_type == OBJECT_ENTITY)
-                        {
-                            Entity* e = static_cast<Entity*>(cont->object);
-                            ConsoleInfo::instance().printf("cont[entity](%d, %d, %d).object_id = %d", static_cast<int>(e->m_transform.getOrigin()[0]), static_cast<int>(e->m_transform.getOrigin()[1]), static_cast<int>(e->m_transform.getOrigin()[2]), e->id());
-                        }
-                    }
-                }
-            }
-            return 1;
-        }
-        else if(!strcmp(token.data(), "xxx"))
-        {
-            f = fopen("ascII.txt", "r");
-            if(f)
-            {
-                fseek(f, 0, SEEK_END);
-                auto size = ftell(f);
-                std::vector<char> buf(size + 1);
-
-                fseek(f, 0, SEEK_SET);
-                fread(buf.data(), size, sizeof(char), f);
-                buf[size] = 0;
-                fclose(f);
-                ConsoleInfo::instance().clean();
-                ConsoleInfo::instance().addText(buf.data(), FontStyle::ConsoleInfo);
-            }
-            else
-            {
-                ConsoleInfo::instance().addText("Not avaliable =(", FontStyle::ConsoleWarning);
-            }
-            return 1;
-        }
-        else if(token[0])
-        {
-            ConsoleInfo::instance().addLine(pch, FontStyle::ConsoleEvent);
-            try
-            {
-                engine_lua.doString(pch);
-            }
-            catch(lua::RuntimeError& error)
-            {
-                ConsoleInfo::instance().addLine(error.what(), FontStyle::ConsoleWarning);
-            }
-            catch(lua::LoadError& error)
-            {
-                ConsoleInfo::instance().addLine(error.what(), FontStyle::ConsoleWarning);
-            }
-            return 0;
-        }
-    }
-
-    return 0;
-}
-
-void Engine_InitConfig(const char *filename)
-{
-    Engine_InitDefaultGlobals();
-
-    if((filename != nullptr) && Engine_FileFound(filename))
-    {
-        script::ScriptEngine state;
-        state.registerC("bind", &script::MainEngine::bindKey);                             // get and set key bindings
-        try
-        {
-            state.doFile(filename);
-        }
-        catch(lua::RuntimeError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-            return;
-        }
-        catch(lua::LoadError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-            return;
-        }
-
-        state.parseScreen(&screen_info);
-        state.parseRender(&renderer.settings());
-        state.parseAudio(&audio_settings);
-        state.parseConsole(&ConsoleInfo::instance());
-        state.parseControls(&control_mapper);
-        state.parseSystem(&system_settings);
     }
     else
     {
@@ -1256,43 +490,852 @@ void Engine_InitConfig(const char *filename)
     }
 }
 
-int engine_lua_fputs(const char *str, FILE* /*f*/)
+
+void Engine_SaveConfig(const char *filename)
 {
-    ConsoleInfo::instance().addText(str, FontStyle::ConsoleNotify);
-    return static_cast<int>(strlen(str));
+
 }
 
-int engine_lua_fprintf(FILE *f, const char *fmt, ...)
+
+void Engine_Display()
 {
-    va_list argptr;
-    char buf[4096];
-    int ret;
+    if(!engine_done)
+    {
+        qglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);//| GL_ACCUM_BUFFER_BIT);
 
-    // Create string
-    va_start(argptr, fmt);
-    ret = vsnprintf(buf, 4096, fmt, argptr);
-    va_end(argptr);
+        Cam_Apply(&engine_camera);
+        Cam_RecalcClipPlanes(&engine_camera);
+        // GL_VERTEX_ARRAY | GL_COLOR_ARRAY
 
-    // Write it to target file
-    fwrite(buf, 1, ret, f);
+        screen_info.debug_view_state %= 4;
+        if(screen_info.debug_view_state)
+        {
+            ShowDebugInfo();
+        }
 
-    // Write it to console, too (if it helps) und
-    ConsoleInfo::instance().addText(buf, FontStyle::ConsoleNotify);
+        qglPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT); ///@PUSH <- GL_VERTEX_ARRAY | GL_COLOR_ARRAY
+        qglEnableClientState(GL_NORMAL_ARRAY);
+        qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-    return ret;
+        qglFrontFace(GL_CW);
+
+        renderer.GenWorldList(&engine_camera);
+        renderer.DrawList();
+
+        Gui_SwitchGLMode(1);
+        qglEnable(GL_ALPHA_TEST);
+
+        qglPopClientAttrib();        ///@POP -> GL_VERTEX_ARRAY | GL_COLOR_ARRAY
+        Gui_Render();
+        Gui_SwitchGLMode(0);
+
+        renderer.DrawListDebugLines();
+
+        SDL_GL_SwapWindow(sdl_window);
+    }
 }
 
-int engine_lua_printf(const char *fmt, ...)
+
+void Engine_GLSwapWindow()
 {
-    va_list argptr;
-    char buf[4096];
-    int ret;
+    SDL_GL_SwapWindow(sdl_window);
+}
 
-    va_start(argptr, fmt);
-    ret = vsnprintf(buf, 4096, fmt, argptr);
-    va_end(argptr);
 
-    ConsoleInfo::instance().addText(buf, FontStyle::ConsoleNotify);
+void Engine_Resize(int nominalW, int nominalH, int pixelsW, int pixelsH)
+{
+    screen_info.w = nominalW;
+    screen_info.h = nominalH;
 
-    return ret;
+    screen_info.w_unit = (float)nominalW / SYS_SCREEN_METERING_RESOLUTION;
+    screen_info.h_unit = (float)nominalH / SYS_SCREEN_METERING_RESOLUTION;
+    screen_info.scale_factor = (screen_info.w < screen_info.h) ? (screen_info.h_unit) : (screen_info.w_unit);
+
+    GLText_UpdateResize(screen_info.scale_factor);
+    Con_UpdateResize();
+    Gui_UpdateResize();
+
+    Cam_SetFovAspect(&engine_camera, screen_info.fov, (float)nominalW/(float)nominalH);
+    Cam_RecalcClipPlanes(&engine_camera);
+
+    qglViewport(0, 0, pixelsW, pixelsH);
+}
+
+
+void Engine_PollSDLEvents()
+{
+    SDL_Event event;
+    static int mouse_setup = 0;
+    const float color[3] = {1.0f, 0.0f, 0.0f};
+    static float from[3], to[3];
+
+    while(SDL_PollEvent(&event))
+    {
+        switch(event.type)
+        {
+            case SDL_MOUSEMOTION:
+                if(!Con_IsShown() && control_states.mouse_look != 0 &&
+                    ((event.motion.x != (screen_info.w / 2)) ||
+                     (event.motion.y != (screen_info.h / 2))))
+                {
+                    if(mouse_setup)                                             // it is not perfect way, but cursor
+                    {                                                           // every engine start is in one place
+                        control_states.look_axis_x = event.motion.xrel * control_mapper.mouse_sensitivity * 0.01;
+                        control_states.look_axis_y = event.motion.yrel * control_mapper.mouse_sensitivity * 0.01;
+                    }
+
+                    if((event.motion.x < ((screen_info.w / 2) - (screen_info.w / 4))) ||
+                       (event.motion.x > ((screen_info.w / 2) + (screen_info.w / 4))) ||
+                       (event.motion.y < ((screen_info.h / 2) - (screen_info.h / 4))) ||
+                       (event.motion.y > ((screen_info.h / 2) + (screen_info.h / 4))))
+                    {
+                        SDL_WarpMouseInWindow(sdl_window, screen_info.w/2, screen_info.h/2);
+                    }
+                }
+                mouse_setup = 1;
+                break;
+
+            case SDL_MOUSEBUTTONDOWN:
+                if(event.button.button == 1) //LM = 1, MM = 2, RM = 3
+                {
+                    Controls_PrimaryMouseDown(from, to);
+                }
+                else if(event.button.button == 3)
+                {
+                    Controls_SecondaryMouseDown(&last_cont, ray_test_point);
+                    if(last_cont && last_cont->object_type == OBJECT_ENTITY)
+                    {
+                        entity_p player = World_GetPlayer();
+                        if(player && player->character)
+                        {
+                            Character_SetTarget(player, ((entity_p)last_cont->object)->id);
+                        }
+                    }
+                    else
+                    {
+                        entity_p player = World_GetPlayer();
+                        if(player && player->character)
+                        {
+                            Character_SetTarget(player, ENTITY_ID_NONE);
+                        }
+                    }
+                }
+                break;
+
+            // Controller events are only invoked when joystick is initialized as
+            // game controller, otherwise, generic joystick event will be used.
+            case SDL_CONTROLLERAXISMOTION:
+                Controls_WrapGameControllerAxis(event.caxis.axis, event.caxis.value);
+                break;
+
+            case SDL_CONTROLLERBUTTONDOWN:
+            case SDL_CONTROLLERBUTTONUP:
+                Controls_WrapGameControllerKey(event.cbutton.button, event.cbutton.state);
+                break;
+
+            // Joystick events are still invoked, even if joystick is initialized as game
+            // controller - that's why we need sdl_joystick checking - to filter out
+            // duplicate event calls.
+
+            case SDL_JOYAXISMOTION:
+                if(sdl_joystick)
+                {
+                    Controls_JoyAxis(event.jaxis.axis, event.jaxis.value);
+                }
+                break;
+
+            case SDL_JOYHATMOTION:
+                if(sdl_joystick)
+                {
+                    Controls_JoyHat(event.jhat.value);
+                }
+                break;
+
+            case SDL_JOYBUTTONDOWN:
+            case SDL_JOYBUTTONUP:
+                // NOTE: Joystick button numbers are passed with added JOY_BUTTON_MASK (1000).
+                if(sdl_joystick)
+                {
+                    Controls_Key((event.jbutton.button + JOY_BUTTON_MASK), event.jbutton.state);
+                }
+                break;
+
+            case SDL_TEXTINPUT:
+            case SDL_TEXTEDITING:
+                if(Con_IsShown() && event.key.state)
+                {
+                    Con_Filter(event.text.text);
+                    return;
+                }
+                break;
+
+            case SDL_KEYUP:
+            case SDL_KEYDOWN:
+                if( (event.key.keysym.sym == SDLK_F4) &&
+                    (event.key.state == SDL_PRESSED)  &&
+                    (event.key.keysym.mod & KMOD_ALT) )
+                {
+                    Engine_SetDone();
+                    break;
+                }
+
+                if(Con_IsShown() && event.key.state)
+                {
+                    switch(event.key.keysym.sym)
+                    {
+                        case SDLK_RETURN:
+                        case SDLK_UP:
+                        case SDLK_DOWN:
+                        case SDLK_LEFT:
+                        case SDLK_RIGHT:
+                        case SDLK_HOME:
+                        case SDLK_END:
+                        case SDLK_BACKSPACE:
+                        case SDLK_DELETE:
+                            Con_Edit(event.key.keysym.sym);
+                            break;
+
+                        default:
+                            break;
+                    }
+                    return;
+                }
+                else
+                {
+                    Controls_Key(event.key.keysym.sym, event.key.state);
+                    // DEBUG KEYBOARD COMMANDS
+                    Controls_DebugKeys(event.key.keysym.sym, event.key.state);
+                }
+                break;
+
+            case SDL_QUIT:
+                Engine_SetDone();
+                break;
+
+            case SDL_WINDOWEVENT:
+                if(event.window.event == SDL_WINDOWEVENT_RESIZED)
+                {
+                    Engine_Resize(event.window.data1, event.window.data2, event.window.data1, event.window.data2);
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+    renderer.debugDrawer->DrawLine(from, to, color, color);
+}
+
+
+void Engine_JoyRumble(float power, int time)
+{
+    // JoyRumble is a simple wrapper for SDL's haptic rumble play.
+    if(sdl_haptic)
+    {
+        SDL_HapticRumblePlay(sdl_haptic, power, time);
+    }
+}
+
+
+void Engine_MainLoop()
+{
+    float time = 0.0f;
+    float newtime = 0.0f;
+    float oldtime = Sys_FloatTime();
+    float time_cycl = 0.0f;
+
+    const int max_cycles = 64;
+    int cycles = 0;
+    char fps_str[32] = "0.0";
+
+    while(!engine_done)
+    {
+        newtime = Sys_FloatTime();
+        time = newtime - oldtime;
+        oldtime = newtime;
+        time *= time_scale;
+
+        if(engine_set_sero_time)
+        {
+            engine_set_sero_time = 0;
+            time = 0.0f;
+        }
+
+        engine_frame_time = time;
+
+        if(cycles < max_cycles)
+        {
+            cycles++;
+            time_cycl += time;
+        }
+        else
+        {
+            screen_info.fps = ((float)max_cycles / time_cycl);
+            snprintf(fps_str, 32, "%.1f", screen_info.fps);
+            cycles = 0;
+            time_cycl = 0.0f;
+        }
+
+        gl_text_line_p fps = GLText_OutTextXY(10.0f, 10.0f, fps_str);
+        fps->x_align    = GLTEXT_ALIGN_RIGHT;
+        fps->y_align    = GLTEXT_ALIGN_BOTTOM;
+        fps->font_id    = FONT_PRIMARY;
+        fps->style_id   = FONTSTYLE_MENU_TITLE;
+
+        Sys_ResetTempMem();
+        Engine_PollSDLEvents();
+        Game_Frame(time);
+        Gameflow_Do();
+
+        Audio_Update(time);
+        Engine_Display();
+    }
+}
+
+
+void ShowDebugInfo()
+{
+    float y = (float)screen_info.h;
+    const float dy = -18.0f * screen_info.scale_factor;
+
+    if(last_cont)
+    {
+        switch(last_cont->object_type)
+        {
+            case OBJECT_ENTITY:
+                GLText_OutTextXY(30.0f, y += dy, "cont_entity: id = %d, model = %d, room = %d", ((entity_p)last_cont->object)->id, ((entity_p)last_cont->object)->bf->animations.model->id, (last_cont->room) ? (last_cont->room->id) : (-1));
+                break;
+
+            case OBJECT_STATIC_MESH:
+                GLText_OutTextXY(30.0f, y += dy, "cont_static: id = %d, room = %d", ((static_mesh_p)last_cont->object)->object_id, (last_cont->room) ? (last_cont->room->id) : (-1));
+                break;
+
+            case OBJECT_ROOM_BASE:
+                {
+                    room_sector_p rs = Room_GetSectorRaw((room_p)last_cont->object, ray_test_point);
+                    if(rs != NULL)
+                    {
+                        renderer.debugDrawer->SetColor(0.0, 1.0, 0.0);
+                        renderer.debugDrawer->DrawSectorDebugLines(rs);
+                        GLText_OutTextXY(30.0f, y += dy, "cont_room: (id = %d, sx = %d, sy = %d)", rs->owner_room->id, rs->index_x, rs->index_y);
+                        GLText_OutTextXY(30.0f, y += dy, "room_below = %d, room_above = %d", (rs->sector_below != NULL) ? (rs->sector_below->owner_room->id) : (-1), (rs->sector_above != NULL) ? (rs->sector_above->owner_room->id) : (-1));
+                        if(rs->trigger)
+                        {
+                            char trig_type[64];
+                            char trig_func[64];
+                            Trigger_TrigTypeToStr(trig_type, 64, rs->trigger->sub_function);
+                            GLText_OutTextXY(30.0f, y += dy, "trig(sub = %s, val = 0x%X, mask = 0x%X)", trig_type, rs->trigger->function_value, rs->trigger->mask);
+                            for(trigger_command_p cmd = rs->trigger->commands; cmd; cmd = cmd->next)
+                            {
+                                entity_p trig_obj = World_GetEntityByID(cmd->operands);
+                                if(trig_obj)
+                                {
+                                    renderer.debugDrawer->SetColor(0.0, 0.0, 1.0);
+                                    renderer.debugDrawer->DrawBBox(trig_obj->bf->bb_min, trig_obj->bf->bb_max, trig_obj->transform);
+                                    renderer.OutTextXYZ(trig_obj->transform[12 + 0], trig_obj->transform[12 + 1], trig_obj->transform[12 + 2], "(id = 0x%X)", trig_obj->id);
+                                }
+                                Trigger_TrigCmdToStr(trig_func, 64, cmd->function);
+                                GLText_OutTextXY(30.0f, y += dy, "   cmd(func = %s, op = 0x%X)", trig_func, cmd->operands);
+                            }
+                        }
+                    }
+                }
+                break;
+        }
+    }
+
+    switch(screen_info.debug_view_state)
+    {
+        case 1:
+            {
+                entity_p ent = World_GetPlayer();
+                if(ent && ent->character)
+                {
+                    GLText_OutTextXY(30.0f, y += dy, "last_anim = %03d, curr_anim = %03d, next_anim = %03d, last_st = %03d, next_st = %03d", ent->bf->animations.last_animation, ent->bf->animations.current_animation, ent->bf->animations.next_animation, ent->bf->animations.last_state, ent->bf->animations.next_state);
+                    GLText_OutTextXY(30.0f, y += dy, "curr_anim = %03d, next_anim = %03d, curr_frame = %03d, next_frame = %03d", ent->bf->animations.current_animation, ent->bf->animations.next_animation, ent->bf->animations.current_frame, ent->bf->animations.next_frame);
+                    GLText_OutTextXY(30.0f, y += dy, "posX = %f, posY = %f, posZ = %f", ent->transform[12], ent->transform[13], ent->transform[14]);
+                    GLText_OutTextXY(30.0f, y += dy, "sectX = %i, sectY = %i", ent->current_sector->index_x, ent->current_sector->index_y);
+                }
+            }
+            break;
+
+        case 2:
+            {
+                entity_p ent = World_GetPlayer();
+                if(ent && ent->self->room)
+                {
+                    GLText_OutTextXY(30.0f, y += dy, "char_pos = (%.1f, %.1f, %.1f)", ent->transform[12 + 0], ent->transform[12 + 1], ent->transform[12 + 2]);
+                    room_sector_p rs = Room_GetSectorRaw(ent->self->room, ent->transform + 12);
+                    if(rs != NULL)
+                    {
+                        renderer.debugDrawer->SetColor(0.0, 1.0, 0.0);
+                        renderer.debugDrawer->DrawSectorDebugLines(rs);
+                        GLText_OutTextXY(30.0f, y += dy, "room = (id = %d, sx = %d, sy = %d)", rs->owner_room->id, rs->index_x, rs->index_y);
+                        GLText_OutTextXY(30.0f, y += dy, "room_below = %d, room_above = %d", (rs->sector_below != NULL) ? (rs->sector_below->owner_room->id) : (-1), (rs->sector_above != NULL) ? (rs->sector_above->owner_room->id) : (-1));
+                        if(rs->trigger)
+                        {
+                            char trig_type[64];
+                            char trig_func[64];
+                            Trigger_TrigTypeToStr(trig_type, 64, rs->trigger->sub_function);
+                            GLText_OutTextXY(30.0f, y += dy, "trig(sub = %s, val = 0x%X, mask = 0x%X)", trig_type, rs->trigger->function_value, rs->trigger->mask);
+                            for(trigger_command_p cmd = rs->trigger->commands; cmd; cmd = cmd->next)
+                            {
+                                entity_p trig_obj = World_GetEntityByID(cmd->operands);
+                                if(trig_obj)
+                                {
+                                    renderer.debugDrawer->SetColor(0.0, 0.0, 1.0);
+                                    renderer.debugDrawer->DrawBBox(trig_obj->bf->bb_min, trig_obj->bf->bb_max, trig_obj->transform);
+                                    renderer.OutTextXYZ(trig_obj->transform[12 + 0], trig_obj->transform[12 + 1], trig_obj->transform[12 + 2], "(id = 0x%X)", trig_obj->id);
+                                }
+                                Trigger_TrigCmdToStr(trig_func, 64, cmd->function);
+                                GLText_OutTextXY(30.0f, y += dy, "   cmd(func = %s, op = 0x%X)", trig_func, cmd->operands);
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+
+        case 3:
+            if(renderer.dynamicBSP)
+            {
+                GLText_OutTextXY(30.0f, y += dy, "input polygons = %07d", renderer.dynamicBSP->GetInputPolygonsCount());
+                GLText_OutTextXY(30.0f, y += dy, "added polygons = %07d", renderer.dynamicBSP->GetAddedPolygonsCount());
+            }
+            break;
+    };
+}
+
+
+/*
+ * MISC ENGINE FUNCTIONALITY
+ */
+
+void Engine_TakeScreenShot()
+{
+    static int screenshot_cnt = 0;
+    GLint ViewPort[4];
+    char fname[128];
+    GLubyte *pixels;
+    uint32_t str_size;
+
+    qglGetIntegerv(GL_VIEWPORT, ViewPort);
+    snprintf(fname, 128, "screen_%.5d.png", screenshot_cnt);
+    str_size = ViewPort[2] * 4;
+    pixels = (GLubyte*)malloc(str_size * ViewPort[3]);
+    qglReadPixels(0, 0, ViewPort[2], ViewPort[3], GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    Image_Save(fname, IMAGE_FORMAT_PNG, (uint8_t*)pixels, ViewPort[2], ViewPort[3], 32);
+
+    free(pixels);
+    screenshot_cnt++;
+}
+
+
+void Engine_GetLevelName(char *name, const char *path)
+{
+    int i, len, start, ext;
+
+    if(!path || (path[0] == 0x00))
+    {
+        name[0] = 0x00;
+        return;
+    }
+
+    ext = len = strlen(path);
+    start = 0;
+
+    for(i = len; i >= 0; i--)
+    {
+        if(path[i] == '.')
+        {
+            ext = i;
+        }
+        if(path[i] == '\\' || path[i] == '/')
+        {
+            start = i + 1;
+            break;
+        }
+    }
+
+    for(i = start; (i < ext) && (i + 1 < LEVEL_NAME_MAX_LEN + start); i++)
+    {
+        name[i-start] = path[i];
+    }
+    name[i-start] = 0;
+}
+
+
+void Engine_GetLevelScriptName(int game_version, char *name, const char *postfix, uint32_t buf_size)
+{
+    char level_name[LEVEL_NAME_MAX_LEN];
+    Engine_GetLevelName(level_name, gameflow_manager.CurrentLevelPath);
+
+    name[0] = 0;
+
+    strncat(name, "scripts/level/", buf_size);
+
+    if(game_version < TR_II)
+    {
+        strncat(name, "tr1/", buf_size);
+    }
+    else if(game_version < TR_III)
+    {
+        strncat(name, "tr2/", buf_size);
+    }
+    else if(game_version < TR_IV)
+    {
+        strncat(name, "tr3/", buf_size);
+    }
+    else if(game_version < TR_V)
+    {
+        strncat(name, "tr4/", buf_size);
+    }
+    else
+    {
+        strncat(name, "tr5/", buf_size);
+    }
+
+    for(char *ch = level_name; *ch; ch++)
+    {
+        *ch = toupper(*ch);
+    }
+
+    strncat(name, level_name, buf_size);
+    if(postfix)
+    {
+        strncat(name, postfix, buf_size);
+    }
+    strncat(name, ".lua", buf_size);
+}
+
+
+bool Engine_LoadPCLevel(const char *name)
+{
+    int trv = VT_Level::get_PC_level_version(name);
+    if(trv != TR_UNKNOWN)
+    {
+        VT_Level *tr_level = new VT_Level();
+        tr_level->read_level(name, trv);
+        tr_level->prepare_level();
+        //tr_level->dump_textures();
+
+        World_Open(tr_level);
+
+        char buf[LEVEL_NAME_MAX_LEN] = {0x00};
+        Engine_GetLevelName(buf, name);
+
+        Con_Notify("loaded PC level");
+        Con_Notify("version = %d, map = \"%s\"", trv, buf);
+        Con_Notify("rooms count = %d", tr_level->rooms_count);
+
+        delete tr_level;
+        return true;
+    }
+    return false;
+}
+
+
+int Engine_LoadMap(const char *name)
+{
+    if(!Sys_FileFound(name, 0))
+    {
+        Con_Warning("file not found: \"%s\"", name);
+        return 0;
+    }
+
+    Game_StopFlyBy();
+    engine_camera.current_room = NULL;
+    renderer.ResetWorld(NULL, 0, NULL, 0);
+    Gui_DrawLoadScreen(0);
+
+    // it is needed for "not in the game" levels or correct saves loading.
+    strncpy(gameflow_manager.CurrentLevelPath, name, MAX_ENGINE_PATH);
+
+    Gui_DrawLoadScreen(100);
+
+
+    // Here we can place different platform-specific level loading routines.
+    switch(VT_Level::get_level_format(name))
+    {
+        case LEVEL_FORMAT_PC:
+            if(!Engine_LoadPCLevel(name))
+            {
+                return 0;
+            }
+            break;
+
+        /*case LEVEL_FORMAT_PSX:
+            return 0;
+            break;
+
+        case LEVEL_FORMAT_DC:
+            return 0;
+            break;
+
+        case LEVEL_FORMAT_OPENTOMB:
+            return 0;
+            break;*/
+
+        default:
+            return 0;
+    }
+
+    Audio_Init();
+    Game_Prepare();
+
+    room_p rooms;
+    uint32_t rooms_count;
+    anim_seq_p seq;
+    uint32_t seq_count;
+
+    World_GetRoomInfo(&rooms, &rooms_count);
+    World_GetAnimSeqInfo(&seq, &seq_count);
+    renderer.ResetWorld(rooms, rooms_count, seq, seq_count);
+
+    Gui_DrawLoadScreen(1000);
+    Gui_NotifierStop();
+    engine_set_sero_time = 1;
+
+    return 1;
+}
+
+
+int Engine_ExecCmd(char *ch)
+{
+    char token[1024];
+
+    while(ch != NULL)
+    {
+        char *pch = ch;
+        ch = SC_ParseToken(ch, token);
+        if(!strcmp(token, "help"))
+        {
+            Con_AddLine("Available commands:\0", FONTSTYLE_CONSOLE_WARNING);
+            Con_AddLine("help - show help info\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("loadMap(\"file_name\") - load level \"file_name\"\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("save, load - save and load game state in \"file_name\"\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("exit - close program\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("cls - clean console\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("show_fps - switch show fps flag\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("spacing - read and write spacing\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("showing_lines - read and write number of showing lines\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("cvars - lua's table of cvar's, to see them type: show_table(cvars)\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("free_look - switch camera mode\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("r_crosshair - switch crosshair visibility\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("cam_distance - camera distance to actor\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("r_wireframe, r_portals, r_frustums, r_room_boxes, r_boxes, r_normals, r_skip_room, r_flyby, r_triggers - render modes\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("playsound(id) - play specified sound\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("stopsound(id) - stop specified sound\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("Watch out for case sensitive commands!\0", FONTSTYLE_CONSOLE_WARNING);
+        }
+        else if(!strcmp(token, "goto"))
+        {
+            control_states.free_look = 1;
+            engine_camera.pos[0] = SC_ParseFloat(&ch);
+            engine_camera.pos[1] = SC_ParseFloat(&ch);
+            engine_camera.pos[2] = SC_ParseFloat(&ch);
+            return 1;
+        }
+        else if(!strcmp(token, "save"))
+        {
+            ch = SC_ParseToken(ch, token);
+            if(NULL != ch)
+            {
+                Game_Save(token);
+            }
+            return 1;
+        }
+        else if(!strcmp(token, "load"))
+        {
+            ch = SC_ParseToken(ch, token);
+            if(NULL != ch)
+            {
+                Game_Load(token);
+            }
+            return 1;
+        }
+        else if(!strcmp(token, "exit"))
+        {
+            Engine_Shutdown(0);
+            return 1;
+        }
+        else if(!strcmp(token, "cls"))
+        {
+            Con_Clean();
+            return 1;
+        }
+        else if(!strcmp(token, "spacing"))
+        {
+            ch = SC_ParseToken(ch, token);
+            if(NULL == ch)
+            {
+                Con_Notify("spacing = %d", Con_GetLineInterval());
+                return 1;
+            }
+            Con_SetLineInterval(atof(token));
+            return 1;
+        }
+        else if(!strcmp(token, "showing_lines"))
+        {
+            ch = SC_ParseToken(ch, token);
+            if(NULL == ch)
+            {
+                Con_Notify("showing lines = %d", Con_GetShowingLines());
+                return 1;
+            }
+            else
+            {
+                Con_SetShowingLines(atoi(token));
+            }
+            return 1;
+        }
+        else if(!strcmp(token, "r_wireframe"))
+        {
+            renderer.r_flags ^= R_DRAW_WIRE;
+            return 1;
+        }
+        else if(!strcmp(token, "r_points"))
+        {
+            renderer.r_flags ^= R_DRAW_POINTS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_coll"))
+        {
+            renderer.r_flags ^= R_DRAW_COLL;
+            return 1;
+        }
+        else if(!strcmp(token, "r_normals"))
+        {
+            renderer.r_flags ^= R_DRAW_NORMALS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_portals"))
+        {
+            renderer.r_flags ^= R_DRAW_PORTALS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_frustums"))
+        {
+            renderer.r_flags ^= R_DRAW_FRUSTUMS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_room_boxes"))
+        {
+            renderer.r_flags ^= R_DRAW_ROOMBOXES;
+            return 1;
+        }
+        else if(!strcmp(token, "r_boxes"))
+        {
+            renderer.r_flags ^= R_DRAW_BOXES;
+            return 1;
+        }
+        else if(!strcmp(token, "r_axis"))
+        {
+            renderer.r_flags ^= R_DRAW_AXIS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_nullmeshes"))
+        {
+            renderer.r_flags ^= R_DRAW_NULLMESHES;
+            return 1;
+        }
+        else if(!strcmp(token, "r_dummy_statics"))
+        {
+            renderer.r_flags ^= R_DRAW_DUMMY_STATICS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_skip_room"))
+        {
+            renderer.r_flags ^= R_SKIP_ROOM;
+            return 1;
+        }
+        else if(!strcmp(token, "r_flyby"))
+        {
+            renderer.r_flags ^= R_DRAW_FLYBY;
+            return 1;
+        }
+        else if(!strcmp(token, "r_triggers"))
+        {
+            renderer.r_flags ^= R_DRAW_TRIGGERS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_crosshair"))
+        {
+            screen_info.crosshair = !screen_info.crosshair;
+            return 1;
+        }
+        else if(!strcmp(token, "room_info"))
+        {
+            room_p r = engine_camera.current_room;
+            if(r)
+            {
+                room_sector_p sect = Room_GetSectorXYZ(r, engine_camera.pos);
+                Con_Printf("ID = %d, x_sect = %d, y_sect = %d", r->id, r->sectors_x, r->sectors_y);
+                if(sect)
+                {
+                    Con_Printf("sect(%d, %d), inpenitrable = %d, r_up = %d, r_down = %d", sect->index_x, sect->index_y,
+                               (int)(sect->ceiling == TR_METERING_WALLHEIGHT || sect->floor == TR_METERING_WALLHEIGHT), (int)(sect->sector_above != NULL), (int)(sect->sector_below != NULL));
+                    for(uint32_t i = 0; i < sect->owner_room->content->static_mesh_count; i++)
+                    {
+                        Con_Printf("static[%d].object_id = %d", i, sect->owner_room->content->static_mesh[i].object_id);
+                    }
+                    for(engine_container_p cont = sect->owner_room->content->containers; cont; cont=cont->next)
+                    {
+                        if(cont->object_type == OBJECT_ENTITY)
+                        {
+                            entity_p e = (entity_p)cont->object;
+                            Con_Printf("cont[entity](%d, %d, %d).object_id = %d", (int)e->transform[12+0], (int)e->transform[12+1], (int)e->transform[12+2], e->id);
+                        }
+                    }
+                }
+            }
+            return 1;
+        }
+        else if(!strcmp(token, "xxx"))
+        {
+            SDL_RWops *f = SDL_RWFromFile("ascII.txt", "r");
+            if(f)
+            {
+                long int size;
+                char *buf;
+                SDL_RWseek(f, 0, RW_SEEK_END);
+                size= SDL_RWtell(f);
+                buf = (char*) malloc((size+1)*sizeof(char));
+
+                SDL_RWseek(f, 0, RW_SEEK_SET);
+                SDL_RWread(f, buf, sizeof(char), size);
+                buf[size] = 0;
+                SDL_RWclose(f);
+                Con_Clean();
+                Con_AddText(buf, FONTSTYLE_CONSOLE_INFO);
+                free(buf);
+            }
+            else
+            {
+                Con_AddText("Not avaliable =(", FONTSTYLE_CONSOLE_WARNING);
+            }
+            return 1;
+        }
+        else if(token[0])
+        {
+            if(engine_lua)
+            {
+                Con_AddLine(pch, FONTSTYLE_GENERIC);
+                if (luaL_dostring(engine_lua, pch) != LUA_OK)
+                {
+                    Con_AddLine(lua_tostring(engine_lua, -1), FONTSTYLE_CONSOLE_WARNING);
+                    lua_pop(engine_lua, 1);
+                }
+            }
+            else
+            {
+                char buf[1024];
+                snprintf(buf, 1024, "Command \"%s\" not found", token);
+                Con_AddLine(buf, FONTSTYLE_CONSOLE_WARNING);
+            }
+            return 0;
+        }
+    }
+
+    return 0;
 }

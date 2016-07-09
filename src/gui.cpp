@@ -1,212 +1,181 @@
+
+#include <stdint.h>
+#include <string.h>
+#include <ctype.h>
+
+#include "core/gl_util.h"
+#include "core/gl_font.h"
+#include "core/gl_text.h"
+#include "core/system.h"
+#include "core/console.h"
+#include "core/vmath.h"
+
+#include "render/camera.h"
+#include "render/render.h"
+#include "render/shader_description.h"
+#include "render/shader_manager.h"
+#include "image.h"
 #include "gui.h"
-
-#include <cstdint>
-#include <map>
-
-#ifdef __APPLE_CC__
-#include <ImageIO/ImageIO.h>
-#else
-#include <SDL2/SDL_image.h>
-#endif
-
-#include "camera.h"
+#include "mesh.h"
+#include "skeletal_model.h"
+#include "entity.h"
 #include "character_controller.h"
-#include "console.h"
 #include "engine.h"
-#include "gl_font.h"
-#include "gl_util.h"
-#include "render.h"
+#include "audio.h"
 #include "script.h"
-#include "shader_description.h"
-#include "shader_manager.h"
-#include "strings.h"
-#include "system.h"
-#include "vertex_array.h"
-#include "vmath.h"
+#include "engine_string.h"
+#include "world.h"
 #include "inventory.h"
 
-extern SDL_Window  *sdl_window;
-
-TextLine*     gui_base_lines = nullptr;
-TextLine      gui_temp_lines[MaxTempLines];
-uint16_t      temp_lines_used = 0;
-
 gui_ItemNotifier    Notifier;
-std::map<BarType, ProgressBar>     Bar;
-std::map<FaderType, Fader>         faderType;
+gui_ProgressBar     Bar[BAR_LASTINDEX];
 
-FontManager       *fontManager = nullptr;
+gui_InventoryManager  *main_inventory_manager = NULL;
 
-GLuint crosshairBuffer;
-VertexArray *crosshairArray;
+static GLuint crosshairBuffer = 0;
+static GLuint backgroundBuffer = 0;
+static GLuint rectBuffer = 0;
+static GLuint load_screen_tex = 0;
+static GLfloat guiProjectionMatrix[16];
 
-matrix4 guiProjectionMatrix = matrix4();
+static GLfloat screenSize[2];
+
+static void Gui_FillCrosshairBuffer();
+static void Gui_FillBackgroundBuffer();
 
 void Gui_Init()
 {
     Gui_InitBars();
-    Gui_InitFaders();
     Gui_InitNotifier();
-    Gui_InitTempLines();
 
-    glGenBuffers(1, &crosshairBuffer);
+    qglGenBuffersARB(1, &crosshairBuffer);
+    qglGenBuffersARB(1, &backgroundBuffer);
+    qglGenBuffersARB(1, &rectBuffer);
+    qglGenTextures(1, &load_screen_tex);
     Gui_FillCrosshairBuffer();
+    Gui_FillBackgroundBuffer();
 
-    //main_inventory_menu = new gui_InventoryMenu();
-    main_inventory_manager = new InventoryManager();
+    main_inventory_manager = new gui_InventoryManager();
 }
 
-void Gui_InitFontManager()
-{
-    fontManager = new FontManager();
-}
-
-void Gui_InitTempLines()
-{
-    for(int i = 0; i < MaxTempLines; i++)
-    {
-        gui_temp_lines[i].text.clear();
-        gui_temp_lines[i].show = false;
-
-        gui_temp_lines[i].next = nullptr;
-        gui_temp_lines[i].prev = nullptr;
-
-        gui_temp_lines[i].font_id = FontType::Secondary;
-        gui_temp_lines[i].style_id = FontStyle::Generic;
-    }
-}
 
 void Gui_InitBars()
 {
+    for(int i = 0; i < BAR_LASTINDEX; i++)
     {
-        const auto i = BarType::Health;
-        Bar[i].Visible = false;
-        Bar[i].Alternate = false;
-        Bar[i].Invert = false;
-        Bar[i].Vertical = false;
+        switch(i)
+        {
+            case BAR_HEALTH:
+                {
+                    Bar[i].Visible =      false;
+                    Bar[i].Alternate =    false;
+                    Bar[i].Invert =       false;
+                    Bar[i].Vertical =     false;
 
-        Bar[i].SetSize(250, 15, 3);
-        Bar[i].SetPosition(HorizontalAnchor::Left, 30, VerticalAnchor::Top, 30);
-        Bar[i].SetColor(BarColorType::BaseMain, 255, 50, 50, 200);
-        Bar[i].SetColor(BarColorType::BaseFade, 100, 255, 50, 200);
-        Bar[i].SetColor(BarColorType::AltMain, 255, 180, 0, 255);
-        Bar[i].SetColor(BarColorType::AltFade, 255, 255, 0, 255);
-        Bar[i].SetColor(BarColorType::BackMain, 0, 0, 0, 160);
-        Bar[i].SetColor(BarColorType::BackFade, 60, 60, 60, 130);
-        Bar[i].SetColor(BarColorType::BorderMain, 200, 200, 200, 50);
-        Bar[i].SetColor(BarColorType::BorderFade, 80, 80, 80, 100);
-        Bar[i].SetValues(LARA_PARAM_HEALTH_MAX, LARA_PARAM_HEALTH_MAX / 3);
-        Bar[i].SetBlink(300);
-        Bar[i].SetExtrude(true, 100);
-        Bar[i].SetAutoshow(true, 2000, true, 400);
-    }
-    {
-        const auto i = BarType::Air;
-        Bar[i].Visible = false;
-        Bar[i].Alternate = false;
-        Bar[i].Invert = true;
-        Bar[i].Vertical = false;
+                    Bar[i].SetSize(250, 15, 3);
+                    Bar[i].SetPosition(GUI_ANCHOR_HOR_LEFT, 30, GUI_ANCHOR_VERT_TOP, 30);
+                    Bar[i].SetColor(BASE_MAIN, 255, 50, 50, 200);
+                    Bar[i].SetColor(BASE_FADE, 100, 255, 50, 200);
+                    Bar[i].SetColor(ALT_MAIN, 255, 180, 0, 255);
+                    Bar[i].SetColor(ALT_FADE, 255, 255, 0, 255);
+                    Bar[i].SetColor(BACK_MAIN, 0, 0, 0, 160);
+                    Bar[i].SetColor(BACK_FADE, 60, 60, 60, 130);
+                    Bar[i].SetColor(BORDER_MAIN, 200, 200, 200, 50);
+                    Bar[i].SetColor(BORDER_FADE, 80, 80, 80, 100);
+                    Bar[i].SetValues(LARA_PARAM_HEALTH_MAX, LARA_PARAM_HEALTH_MAX / 3);
+                    Bar[i].SetBlink(300);
+                    Bar[i].SetExtrude(true, 100);
+                    Bar[i].SetAutoshow(true, 2000, true, 400);
+                }
+                break;
 
-        Bar[i].SetSize(250, 15, 3);
-        Bar[i].SetPosition(HorizontalAnchor::Right, 30, VerticalAnchor::Top, 30);
-        Bar[i].SetColor(BarColorType::BaseMain, 0, 50, 255, 200);
-        Bar[i].SetColor(BarColorType::BaseFade, 190, 190, 255, 200);
-        Bar[i].SetColor(BarColorType::BackMain, 0, 0, 0, 160);
-        Bar[i].SetColor(BarColorType::BackFade, 60, 60, 60, 130);
-        Bar[i].SetColor(BarColorType::BorderMain, 200, 200, 200, 50);
-        Bar[i].SetColor(BarColorType::BorderFade, 80, 80, 80, 100);
-        Bar[i].SetValues(LARA_PARAM_AIR_MAX, (LARA_PARAM_AIR_MAX / 3));
-        Bar[i].SetBlink(300);
-        Bar[i].SetExtrude(true, 100);
-        Bar[i].SetAutoshow(true, 2000, true, 400);
-    }
-    {
-        const auto i = BarType::Stamina;
-        Bar[i].Visible = false;
-        Bar[i].Alternate = false;
-        Bar[i].Invert = false;
-        Bar[i].Vertical = false;
+            case BAR_AIR:
+                {
+                    Bar[i].Visible =      false;
+                    Bar[i].Alternate =    false;
+                    Bar[i].Invert =       true;
+                    Bar[i].Vertical =     false;
 
-        Bar[i].SetSize(250, 15, 3);
-        Bar[i].SetPosition(HorizontalAnchor::Left, 30, VerticalAnchor::Top, 55);
-        Bar[i].SetColor(BarColorType::BaseMain, 255, 100, 50, 200);
-        Bar[i].SetColor(BarColorType::BaseFade, 255, 200, 0, 200);
-        Bar[i].SetColor(BarColorType::BackMain, 0, 0, 0, 160);
-        Bar[i].SetColor(BarColorType::BackFade, 60, 60, 60, 130);
-        Bar[i].SetColor(BarColorType::BorderMain, 110, 110, 110, 100);
-        Bar[i].SetColor(BarColorType::BorderFade, 60, 60, 60, 180);
-        Bar[i].SetValues(LARA_PARAM_STAMINA_MAX, 0);
-        Bar[i].SetExtrude(true, 100);
-        Bar[i].SetAutoshow(true, 500, true, 300);
-    }
-    {
-        const auto i = BarType::Warmth;
-        Bar[i].Visible = false;
-        Bar[i].Alternate = false;
-        Bar[i].Invert = true;
-        Bar[i].Vertical = false;
+                    Bar[i].SetSize(250, 15, 3);
+                    Bar[i].SetPosition(GUI_ANCHOR_HOR_RIGHT, 30, GUI_ANCHOR_VERT_TOP, 30);
+                    Bar[i].SetColor(BASE_MAIN, 0, 50, 255, 200);
+                    Bar[i].SetColor(BASE_FADE, 190, 190, 255, 200);
+                    Bar[i].SetColor(BACK_MAIN, 0, 0, 0, 160);
+                    Bar[i].SetColor(BACK_FADE, 60, 60, 60, 130);
+                    Bar[i].SetColor(BORDER_MAIN, 200, 200, 200, 50);
+                    Bar[i].SetColor(BORDER_FADE, 80, 80, 80, 100);
+                    Bar[i].SetValues(LARA_PARAM_AIR_MAX, (LARA_PARAM_AIR_MAX / 3));
+                    Bar[i].SetBlink(300);
+                    Bar[i].SetExtrude(true, 100);
+                    Bar[i].SetAutoshow(true, 2000, true, 400);
+                }
+                break;
 
-        Bar[i].SetSize(250, 15, 3);
-        Bar[i].SetPosition(HorizontalAnchor::Right, 30, VerticalAnchor::Top, 55);
-        Bar[i].SetColor(BarColorType::BaseMain, 255, 0, 255, 255);
-        Bar[i].SetColor(BarColorType::BaseFade, 190, 120, 255, 255);
-        Bar[i].SetColor(BarColorType::BackMain, 0, 0, 0, 160);
-        Bar[i].SetColor(BarColorType::BackFade, 60, 60, 60, 130);
-        Bar[i].SetColor(BarColorType::BorderMain, 200, 200, 200, 50);
-        Bar[i].SetColor(BarColorType::BorderFade, 80, 80, 80, 100);
-        Bar[i].SetValues(LARA_PARAM_WARMTH_MAX, LARA_PARAM_WARMTH_MAX / 3);
-        Bar[i].SetBlink(200);
-        Bar[i].SetExtrude(true, 60);
-        Bar[i].SetAutoshow(true, 500, true, 300);
-    }
-    {
-        const auto i = BarType::Loading;
-        Bar[i].Visible = true;
-        Bar[i].Alternate = false;
-        Bar[i].Invert = false;
-        Bar[i].Vertical = false;
+            case BAR_STAMINA:
+                {
+                    Bar[i].Visible =      false;
+                    Bar[i].Alternate =    false;
+                    Bar[i].Invert =       false;
+                    Bar[i].Vertical =     false;
 
-        Bar[i].SetSize(800, 25, 3);
-        Bar[i].SetPosition(HorizontalAnchor::Center, 0, VerticalAnchor::Bottom, 40);
-        Bar[i].SetColor(BarColorType::BaseMain, 255, 225, 127, 230);
-        Bar[i].SetColor(BarColorType::BaseFade, 255, 187, 136, 230);
-        Bar[i].SetColor(BarColorType::BackMain, 30, 30, 30, 100);
-        Bar[i].SetColor(BarColorType::BackFade, 60, 60, 60, 100);
-        Bar[i].SetColor(BarColorType::BorderMain, 200, 200, 200, 80);
-        Bar[i].SetColor(BarColorType::BorderFade, 80, 80, 80, 80);
-        Bar[i].SetValues(1000, 0);
-        Bar[i].SetExtrude(true, 70);
-        Bar[i].SetAutoshow(false, 500, false, 300);
-    }
-}
+                    Bar[i].SetSize(250, 15, 3);
+                    Bar[i].SetPosition(GUI_ANCHOR_HOR_LEFT, 30, GUI_ANCHOR_VERT_TOP, 55);
+                    Bar[i].SetColor(BASE_MAIN, 255, 100, 50, 200);
+                    Bar[i].SetColor(BASE_FADE, 255, 200, 0, 200);
+                    Bar[i].SetColor(BACK_MAIN, 0, 0, 0, 160);
+                    Bar[i].SetColor(BACK_FADE, 60, 60, 60, 130);
+                    Bar[i].SetColor(BORDER_MAIN, 110, 110, 110, 100);
+                    Bar[i].SetColor(BORDER_FADE, 60, 60, 60, 180);
+                    Bar[i].SetValues(LARA_PARAM_STAMINA_MAX, 0);
+                    Bar[i].SetExtrude(true, 100);
+                    Bar[i].SetAutoshow(true, 500, true, 300);
+                }
+                break;
 
-void Gui_InitFaders()
-{
-    {
-        const auto i = FaderType::LoadScreen;
-        faderType[i].SetAlpha(255);
-        faderType[i].SetColor(0, 0, 0);
-        faderType[i].SetBlendingMode(loader::BlendingMode::Opaque);
-        faderType[i].SetSpeed(500);
-        faderType[i].SetScaleMode(FaderScale::Zoom);
-    }
+            case BAR_WARMTH:
+                {
+                    Bar[i].Visible =      false;
+                    Bar[i].Alternate =    false;
+                    Bar[i].Invert =       true;
+                    Bar[i].Vertical =     false;
 
-    {
-        const auto i = FaderType::Effect;
-        faderType[i].SetAlpha(255);
-        faderType[i].SetColor(255, 180, 0);
-        faderType[i].SetBlendingMode(loader::BlendingMode::Multiply);
-        faderType[i].SetSpeed(10, 800);
-    }
+                    Bar[i].SetSize(250, 15, 3);
+                    Bar[i].SetPosition(GUI_ANCHOR_HOR_RIGHT, 30, GUI_ANCHOR_VERT_TOP, 55);
+                    Bar[i].SetColor(BASE_MAIN, 255, 0, 255, 255);
+                    Bar[i].SetColor(BASE_FADE, 190, 120, 255, 255);
+                    Bar[i].SetColor(BACK_MAIN, 0, 0, 0, 160);
+                    Bar[i].SetColor(BACK_FADE, 60, 60, 60, 130);
+                    Bar[i].SetColor(BORDER_MAIN, 200, 200, 200, 50);
+                    Bar[i].SetColor(BORDER_FADE, 80, 80, 80, 100);
+                    Bar[i].SetValues(LARA_PARAM_WARMTH_MAX, LARA_PARAM_WARMTH_MAX / 3);
+                    Bar[i].SetBlink(200);
+                    Bar[i].SetExtrude(true, 60);
+                    Bar[i].SetAutoshow(true, 500, true, 300);
+                }
+                break;
 
-    {
-        const auto i = FaderType::Black;
-        faderType[i].SetAlpha(255);
-        faderType[i].SetColor(0, 0, 0);
-        faderType[i].SetBlendingMode(loader::BlendingMode::Opaque);
-        faderType[i].SetSpeed(500);
-        faderType[i].SetScaleMode(FaderScale::Zoom);
-    }
+            case BAR_LOADING:
+                {
+                    Bar[i].Visible =      true;
+                    Bar[i].Alternate =    false;
+                    Bar[i].Invert =       false;
+                    Bar[i].Vertical =     false;
+
+                    Bar[i].SetSize(800, 25, 3);
+                    Bar[i].SetPosition(GUI_ANCHOR_HOR_CENTER, 0, GUI_ANCHOR_VERT_BOTTOM, 40);
+                    Bar[i].SetColor(BASE_MAIN, 255, 225, 127, 230);
+                    Bar[i].SetColor(BASE_FADE, 255, 187, 136, 230);
+                    Bar[i].SetColor(BACK_MAIN, 30, 30, 30, 100);
+                    Bar[i].SetColor(BACK_FADE, 60, 60, 60, 100);
+                    Bar[i].SetColor(BORDER_MAIN, 200, 200, 200, 80);
+                    Bar[i].SetColor(BORDER_FADE, 80, 80, 80, 80);
+                    Bar[i].SetValues(1000, 0);
+                    Bar[i].SetExtrude(true, 70);
+                    Bar[i].SetAutoshow(false, 500, false, 300);
+                }
+                break;
+        } // end switch(i)
+    } // end for(int i = 0; i < BAR_LASTINDEX; i++)
 }
 
 void Gui_InitNotifier()
@@ -219,316 +188,102 @@ void Gui_InitNotifier()
 
 void Gui_Destroy()
 {
-    for(int i = 0; i < MaxTempLines; i++)
-    {
-        gui_temp_lines[i].show = false;
-        gui_temp_lines[i].text.clear();
-    }
-
-    for(auto& fader : faderType)
-    {
-        fader.second.Cut();
-    }
-
-    temp_lines_used = MaxTempLines;
-
-    /*if(main_inventory_menu)
-    {
-        delete main_inventory_menu;
-        main_inventory_menu = NULL;
-    }*/
-
     if(main_inventory_manager)
     {
         delete main_inventory_manager;
-        main_inventory_manager = nullptr;
+        main_inventory_manager = NULL;
     }
 
-    if(fontManager)
-    {
-        delete fontManager;
-        fontManager = nullptr;
-    }
+    qglDeleteTextures(1, &load_screen_tex);
+    qglDeleteBuffersARB(1, &crosshairBuffer);
+    qglDeleteBuffersARB(1, &backgroundBuffer);
+    qglDeleteBuffersARB(1, &rectBuffer);
 }
 
-void Gui_AddLine(TextLine *line)
-{
-    if(gui_base_lines == nullptr)
-    {
-        gui_base_lines = line;
-        line->next = nullptr;
-        line->prev = nullptr;
-        return;
-    }
-
-    line->prev = nullptr;
-    line->next = gui_base_lines;
-    gui_base_lines->prev = line;
-    gui_base_lines = line;
-}
-
-// line must be in the list, otherway You crash engine!
-void Gui_DeleteLine(TextLine *line)
-{
-    if(line == gui_base_lines)
-    {
-        gui_base_lines = line->next;
-        if(gui_base_lines != nullptr)
-        {
-            gui_base_lines->prev = nullptr;
-        }
-        return;
-    }
-
-    line->prev->next = line->next;
-    if(line->next)
-    {
-        line->next->prev = line->prev;
-    }
-}
-
-void Gui_MoveLine(TextLine *line)
-{
-    line->absXoffset = line->X * screen_info.scale_factor;
-    line->absYoffset = line->Y * screen_info.scale_factor;
-}
-
-/**
- * For simple temporary lines rendering.
- * Really all strings will be rendered in Gui_Render() function.
- */
-TextLine *Gui_OutTextXY(GLfloat x, GLfloat y, const char *fmt, ...)
-{
-    if(fontManager && (temp_lines_used < MaxTempLines - 1))
-    {
-        va_list argptr;
-        TextLine* l = gui_temp_lines + temp_lines_used;
-
-        l->font_id = FontType::Secondary;
-        l->style_id = FontStyle::Generic;
-
-        va_start(argptr, fmt);
-        char tmpStr[LineDefaultSize];
-        vsnprintf(tmpStr, LineDefaultSize, fmt, argptr);
-        l->text = tmpStr;
-        va_end(argptr);
-
-        l->next = nullptr;
-        l->prev = nullptr;
-
-        temp_lines_used++;
-
-        l->X = x;
-        l->Y = y;
-        l->Xanchor = HorizontalAnchor::Left;
-        l->Yanchor = VerticalAnchor::Bottom;
-
-        l->absXoffset = l->X * screen_info.scale_factor;
-        l->absYoffset = l->Y * screen_info.scale_factor;
-
-        l->show = true;
-        return l;
-    }
-
-    return nullptr;
-}
 
 void Gui_Update()
 {
-    if(fontManager != nullptr)
-    {
-        fontManager->Update();
-    }
+
 }
 
-void Gui_Resize()
+void Gui_UpdateResize()
 {
-    TextLine* l = gui_base_lines;
-
-    while(l)
+    for(int i = 0; i < BAR_LASTINDEX; i++)
     {
-        l->absXoffset = l->X * screen_info.scale_factor;
-        l->absYoffset = l->Y * screen_info.scale_factor;
-
-        l = l->next;
+        Bar[i].Resize();
     }
 
-    l = gui_temp_lines;
-    for(uint16_t i = 0; i < temp_lines_used; i++, l++)
-    {
-        l->absXoffset = l->X * screen_info.scale_factor;
-        l->absYoffset = l->Y * screen_info.scale_factor;
-    }
-
-    for(auto& i : Bar)
-    {
-        i.second.Resize();
-    }
-
-    if(fontManager)
-    {
-        fontManager->Resize();
-    }
-
-    /* let us update console too */
-    ConsoleInfo::instance().setLineInterval(ConsoleInfo::instance().spacing());
     Gui_FillCrosshairBuffer();
+    Gui_FillBackgroundBuffer();
 }
 
 void Gui_Render()
 {
-    glFrontFace(GL_CCW);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
+    const text_shader_description *shader = renderer.shaderManager->getTextShader();
+    screenSize[0] = screen_info.w;
+    screenSize[1] = screen_info.h;
+    qglUseProgramObjectARB(shader->program);
+    qglUniform1iARB(shader->sampler, 0);
+    qglUniform2fvARB(shader->screenSize, 1, screenSize);
+    qglUniform1fARB(shader->colorReplace, 0.0f);
 
-    glDisable(GL_DEPTH_TEST);
-    if(screen_info.show_debuginfo) Gui_DrawCrosshair();
+    qglPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT);
+    qglPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT | GL_CLIENT_VERTEX_ARRAY_BIT);
+
+    qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    qglPolygonMode(GL_FRONT, GL_FILL);
+    qglFrontFace(GL_CCW);
+    qglEnable(GL_BLEND);
+    qglBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    qglDisable(GL_ALPHA_TEST);
+
+    if(World_GetPlayer() && main_inventory_manager)
+    {
+        Gui_DrawInventory();
+    }
+    Gui_DrawNotifier();
+    qglUseProgramObjectARB(shader->program);
+
+    qglDepthMask(GL_FALSE);
+
+    qglPixelStorei(GL_UNPACK_LSB_FIRST, GL_FALSE);
+    qglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    if(screen_info.crosshair != 0)
+    {
+        Gui_DrawCrosshair();
+    }
     Gui_DrawBars();
-    Gui_DrawFaders();
-    Gui_RenderStrings();
-    ConsoleInfo::instance().draw();
 
-    glDepthMask(GL_TRUE);
-    glEnable(GL_DEPTH_TEST);
-}
+    qglUniform1fARB(shader->colorReplace, 1.0f);
+    GLText_RenderStrings();
+    Con_Draw(engine_frame_time);
 
-void Gui_RenderStringLine(TextLine *l)
-{
-    GLfloat real_x = 0.0, real_y = 0.0;
-
-    if(fontManager == nullptr)
-    {
-        return;
-    }
-
-    FontTexture* gl_font = fontManager->GetFont(static_cast<FontType>(l->font_id));
-    FontStyleData* style = fontManager->GetFontStyle(static_cast<FontStyle>(l->style_id));
-
-    if((gl_font == nullptr) || (style == nullptr) || (!l->show) || (style->hidden))
-    {
-        return;
-    }
-
-    glf_get_string_bb(gl_font, l->text.c_str(), -1, l->rect + 0, l->rect + 1, l->rect + 2, l->rect + 3);
-
-    switch(l->Xanchor)
-    {
-        case HorizontalAnchor::Left:
-            real_x = l->absXoffset;   // Used with center and right alignments.
-            break;
-        case HorizontalAnchor::Right:
-            real_x = static_cast<float>(screen_info.w) - (l->rect[2] - l->rect[0]) - l->absXoffset;
-            break;
-        case HorizontalAnchor::Center:
-            real_x = (static_cast<float>(screen_info.w) / 2.0) - ((l->rect[2] - l->rect[0]) / 2.0) + l->absXoffset;  // Absolute center.
-            break;
-    }
-
-    switch(l->Yanchor)
-    {
-        case VerticalAnchor::Bottom:
-            real_y += l->absYoffset;
-            break;
-        case VerticalAnchor::Top:
-            real_y = static_cast<float>(screen_info.h) - (l->rect[3] - l->rect[1]) - l->absYoffset;
-            break;
-        case VerticalAnchor::Center:
-            real_y = (static_cast<float>(screen_info.h) / 2.0) + (l->rect[3] - l->rect[1]) - l->absYoffset;          // Consider the baseline.
-            break;
-    }
-
-    // missing texture_coord pointer... GL_TEXTURE_COORD_ARRAY state are enabled here!
-    /*if(style->rect)
-    {
-        glBindTexture(GL_TEXTURE_2D, 0);
-        GLfloat x0 = l->rect[0] + real_x - style->rect_border * screen_info.w_unit;
-        GLfloat y0 = l->rect[1] + real_y - style->rect_border * screen_info.h_unit;
-        GLfloat x1 = l->rect[2] + real_x + style->rect_border * screen_info.w_unit;
-        GLfloat y1 = l->rect[3] + real_y + style->rect_border * screen_info.h_unit;
-
-        GLfloat rectCoords[8];
-        rectCoords[0] = x0; rectCoords[1] = y0;
-        rectCoords[2] = x1; rectCoords[3] = y0;
-        rectCoords[4] = x1; rectCoords[5] = y1;
-        rectCoords[6] = x0; rectCoords[7] = y1;
-        color(style->rect_color);
-        glVertexPointer(2, GL_FLOAT, 0, rectCoords);
-        glDrawArrays(GL_POLYGON, 0, 4);
-    }*/
-
-    if(style->shadowed)
-    {
-        gl_font->gl_font_color[0] = 0.0f;
-        gl_font->gl_font_color[1] = 0.0f;
-        gl_font->gl_font_color[2] = 0.0f;
-        gl_font->gl_font_color[3] = static_cast<float>(style->color[3]) * FontShadowTransparency;// Derive alpha from base color.
-        glf_render_str(gl_font,
-                       (real_x + FontShadowHorizontalShift),
-                       (real_y + FontShadowVerticalShift),
-                       l->text.c_str());
-    }
-
-    std::copy(style->real_color + 0, style->real_color + 4, gl_font->gl_font_color);
-    glf_render_str(gl_font, real_x, real_y, l->text.c_str());
-}
-
-void Gui_RenderStrings()
-{
-    if(fontManager != nullptr)
-    {
-        TextLine* l = gui_base_lines;
-
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        TextShaderDescription *shader = renderer.shaderManager()->getTextShader();
-        glUseProgram(shader->program);
-        GLfloat screenSize[2] = {
-            static_cast<GLfloat>(screen_info.w),
-            static_cast<GLfloat>(screen_info.h)
-        };
-        glUniform2fv(shader->screenSize, 1, screenSize);
-        glUniform1i(shader->sampler, 0);
-
-        while(l)
-        {
-            Gui_RenderStringLine(l);
-            l = l->next;
-        }
-
-        l = gui_temp_lines;
-        for(uint16_t i = 0; i < temp_lines_used; i++, l++)
-        {
-            if(l->show)
-            {
-                Gui_RenderStringLine(l);
-                l->show = false;
-            }
-        }
-
-        temp_lines_used = 0;
-    }
+    qglUniform1fARB(shader->colorReplace, 0.0f);
+    qglDepthMask(GL_TRUE);
+    qglPopClientAttrib();
+    qglPopAttrib();
 }
 
 /**
  * That function updates item animation and rebuilds skeletal matrices;
  * @param bf - extended bone frame of the item;
  */
-void Item_Frame(struct SSBoneFrame *bf, btScalar time)
+void Item_Frame(struct ss_bone_frame_s *bf, float time)
 {
     int16_t frame, anim;
     long int t;
-    btScalar dt;
-    StateChange* stc;
+    float dt;
+    state_change_p stc;
 
     bf->animations.lerp = 0.0;
-    stc = Anim_FindStateChangeByID(&bf->animations.model->animations[bf->animations.current_animation], bf->animations.next_state);
-    Entity::getNextFrame(bf, time, stc, &frame, &anim, 0x00);
+    stc = Anim_FindStateChangeByID(bf->animations.model->animations + bf->animations.current_animation, bf->animations.next_state);
+    Anim_GetNextFrame(&bf->animations, time, stc, &frame, &anim, 0x00);
     if(anim != bf->animations.current_animation)
     {
         bf->animations.last_animation = bf->animations.current_animation;
-        /*frame %= bf->model->animations[anim].frames.size();
-        frame = (frame >= 0)?(frame):(bf->model->animations[anim].frames.size() - 1 + frame);
+        /*frame %= bf->model->animations[anim].frames_count;
+        frame = (frame >= 0)?(frame):(bf->model->animations[anim].frames_count - 1 + frame);
 
         bf->last_state = bf->model->animations[anim].state_id;
         bf->next_state = bf->model->animations[anim].state_id;
@@ -536,7 +291,7 @@ void Item_Frame(struct SSBoneFrame *bf, btScalar time)
         bf->current_frame = frame;
         bf->next_animation = anim;
         bf->next_frame = frame;*/
-        stc = Anim_FindStateChangeByID(&bf->animations.model->animations[bf->animations.current_animation], bf->animations.next_state);
+        stc = Anim_FindStateChangeByID(bf->animations.model->animations + bf->animations.current_animation, bf->animations.next_state);
     }
     else if(bf->animations.current_frame != frame)
     {
@@ -550,12 +305,13 @@ void Item_Frame(struct SSBoneFrame *bf, btScalar time)
     bf->animations.frame_time += time;
 
     t = (bf->animations.frame_time) / bf->animations.period;
-    dt = bf->animations.frame_time - static_cast<btScalar>(t) * bf->animations.period;
-    bf->animations.frame_time = static_cast<btScalar>(frame) * bf->animations.period + dt;
+    dt = bf->animations.frame_time - (float)t * bf->animations.period;
+    bf->animations.frame_time = (float)frame * bf->animations.period + dt;
     bf->animations.lerp = dt / bf->animations.period;
-    Entity::getNextFrame(bf, bf->animations.period, stc, &bf->animations.next_frame, &bf->animations.next_animation, 0x00);
-    Entity::updateCurrentBoneFrame(bf, nullptr);
+    Anim_GetNextFrame(&bf->animations, bf->animations.period, stc, &bf->animations.next_frame, &bf->animations.next_animation, 0x00);
+    SSBoneFrame_Update(bf, time);
 }
+
 
 /**
  * The base function, that draws one item by them id. Items may be animated.
@@ -564,43 +320,522 @@ void Item_Frame(struct SSBoneFrame *bf, btScalar time)
  * @param size - the item size on the screen;
  * @param str - item description - shows near / under item model;
  */
-void Gui_RenderItem(SSBoneFrame *bf, btScalar size, const btTransform& mvMatrix)
+void Gui_RenderItem(struct ss_bone_frame_s *bf, float size, const float *mvMatrix)
 {
-    const LitShaderDescription *shader = renderer.shaderManager()->getEntityShader(0, false);
-    glUseProgram(shader->program);
-    glUniform1i(shader->number_of_lights, 0);
-    glUniform4f(shader->light_ambient, 1.f, 1.f, 1.f, 1.f);
+    const lit_shader_description *shader = renderer.shaderManager->getEntityShader(0);
+    qglUseProgramObjectARB(shader->program);
+    qglUniform1iARB(shader->number_of_lights, 0);
+    qglUniform4fARB(shader->light_ambient, 1.0f, 1.0f, 1.0f, 1.0f);
 
     if(size != 0.0)
     {
-        auto bb = bf->bb_max - bf->bb_min;
+        float bb[3];
+        vec3_sub(bb, bf->bb_max, bf->bb_min);
         if(bb[0] >= bb[1])
         {
-            size /= ((bb[0] >= bb[2]) ? (bb[0]) : (bb[2]));
+            size /= ((bb[0] >= bb[2])?(bb[0]):(bb[2]));
         }
         else
         {
-            size /= ((bb[1] >= bb[2]) ? (bb[1]) : (bb[2]));
+            size /= ((bb[1] >= bb[2])?(bb[1]):(bb[2]));
         }
-        size *= 0.8f;
+        size *= 0.8;
 
-        btTransform scaledMatrix;
-        scaledMatrix.setIdentity();
+        float scaledMatrix[16];
+        Mat4_E(scaledMatrix);
         if(size < 1.0)          // only reduce items size...
         {
             Mat4_Scale(scaledMatrix, size, size, size);
         }
-        matrix4 scaledMvMatrix(mvMatrix * scaledMatrix);
-        matrix4 mvpMatrix = guiProjectionMatrix * scaledMvMatrix;
+        float scaledMvMatrix[16];
+        Mat4_Mat4_mul(scaledMvMatrix, mvMatrix, scaledMatrix);
+        float mvpMatrix[16];
+        Mat4_Mat4_mul(mvpMatrix, guiProjectionMatrix, scaledMvMatrix);
 
         // Render with scaled model view projection matrix
         // Use original modelview matrix, as that is used for normals whose size shouldn't change.
-        renderer.renderSkeletalModel(shader, bf, matrix4(mvMatrix), mvpMatrix/*, guiProjectionMatrix*/);
+        renderer.DrawSkeletalModel(shader, bf, mvMatrix, mvpMatrix);
     }
     else
     {
-        matrix4 mvpMatrix = guiProjectionMatrix * mvMatrix;
-        renderer.renderSkeletalModel(shader, bf, matrix4(mvMatrix), mvpMatrix/*, guiProjectionMatrix*/);
+        float mvpMatrix[16];
+        Mat4_Mat4_mul(mvpMatrix, guiProjectionMatrix, mvMatrix);
+        renderer.DrawSkeletalModel(shader, bf, mvMatrix, mvpMatrix);
+    }
+}
+
+/*
+ * GUI RENDEDR CLASS
+ */
+gui_InventoryManager::gui_InventoryManager()
+{
+    mCurrentState               = INVENTORY_DISABLED;
+    mNextState                  = INVENTORY_DISABLED;
+    mCurrentItemsType           = GUI_MENU_ITEMTYPE_SYSTEM;
+    mCurrentItemsCount          = 0;
+    mItemsOffset                = 0;
+    mNextItemsCount             = 0;
+
+    mRingRotatePeriod           = 0.5;
+    mRingTime                   = 0.0;
+    mRingAngle                  = 0.0;
+    mRingVerticalAngle          = 0.0;
+    mRingAngleStep              = 0.0;
+    mBaseRingRadius             = 600.0;
+    mRingRadius                 = 600.0;
+    mVerticalOffset             = 0.0;
+
+    mItemRotatePeriod           = 4.0;
+    mItemAngle                  = 0.0;
+
+    mInventory                  = NULL;
+
+    mLabel_Title.x              = 0.0;
+    mLabel_Title.y              = 30.0;
+    mLabel_Title.x_align        = GLTEXT_ALIGN_CENTER;
+    mLabel_Title.y_align        = GLTEXT_ALIGN_TOP;
+
+    mLabel_Title.font_id        = FONT_PRIMARY;
+    mLabel_Title.style_id       = FONTSTYLE_MENU_TITLE;
+    mLabel_Title.text           = mLabel_Title_text;
+    mLabel_Title_text[0]        = 0;
+    mLabel_Title.show           = 0;
+
+    mLabel_ItemName.x           = 0.0;
+    mLabel_ItemName.y           = 50.0;
+    mLabel_ItemName.x_align     = GLTEXT_ALIGN_CENTER;
+    mLabel_ItemName.y_align     = GLTEXT_ALIGN_BOTTOM;
+
+    mLabel_ItemName.font_id     = FONT_PRIMARY;
+    mLabel_ItemName.style_id    = FONTSTYLE_MENU_CONTENT;
+    mLabel_ItemName.text        = mLabel_ItemName_text;
+    mLabel_ItemName_text[0]     = 0;
+    mLabel_ItemName.show        = 0;
+
+    GLText_AddLine(&mLabel_ItemName);
+    GLText_AddLine(&mLabel_Title);
+}
+
+gui_InventoryManager::~gui_InventoryManager()
+{
+    mCurrentState = INVENTORY_DISABLED;
+    mNextState = INVENTORY_DISABLED;
+    mInventory = NULL;
+
+    mLabel_ItemName.show = 0;
+    GLText_DeleteLine(&mLabel_ItemName);
+
+    mLabel_Title.show = 0;
+    GLText_DeleteLine(&mLabel_Title);
+}
+
+int gui_InventoryManager::getItemElementsCountByType(int type)
+{
+    int ret = 0;
+    for(inventory_node_p i = *mInventory; i; i = i->next)
+    {
+        base_item_p bi = World_GetBaseItemByID(i->id);
+        if(bi && (bi->type == type))
+        {
+            ret++;
+        }
+    }
+    return ret;
+}
+
+void gui_InventoryManager::restoreItemAngle(float time)
+{
+    if(mItemAngle > 0.0)
+    {
+        if(mItemAngle <= 180)
+        {
+            mItemAngle -= 180.0 * time / mRingRotatePeriod;
+            if(mItemAngle < 0.0)
+            {
+                mItemAngle = 0.0;
+            }
+        }
+        else
+        {
+            mItemAngle += 180.0 * time / mRingRotatePeriod;
+            if(mItemAngle >= 360.0)
+            {
+                mItemAngle = 0.0;
+            }
+        }
+    }
+}
+
+void gui_InventoryManager::setInventory(struct inventory_node_s **i)
+{
+    mInventory = i;
+    mCurrentState = INVENTORY_DISABLED;
+    mNextState = INVENTORY_DISABLED;
+}
+
+void gui_InventoryManager::setTitle(int items_type)
+{
+    int string_index;
+
+    switch(items_type)
+    {
+        case GUI_MENU_ITEMTYPE_SYSTEM:
+            string_index = STR_GEN_OPTIONS_TITLE;
+            break;
+
+        case GUI_MENU_ITEMTYPE_QUEST:
+            string_index = STR_GEN_ITEMS;
+            break;
+
+        case GUI_MENU_ITEMTYPE_SUPPLY:
+        default:
+            string_index = STR_GEN_INVENTORY;
+            break;
+    }
+
+    Script_GetString(engine_lua, string_index, GUI_LINE_DEFAULTSIZE, mLabel_Title_text);
+}
+
+int gui_InventoryManager::setItemsType(int type)
+{
+    if((mInventory == NULL) || (*mInventory == NULL))
+    {
+        mCurrentItemsType = type;
+        return type;
+    }
+
+    int count = this->getItemElementsCountByType(type);
+    if(count == 0)
+    {
+        for(inventory_node_p i = *mInventory; i; i = i->next)
+        {
+            base_item_p bi = World_GetBaseItemByID(i->id);
+            if(bi)
+            {
+                type = bi->type;
+                count = this->getItemElementsCountByType(mCurrentItemsType);
+                break;
+            }
+        }
+    }
+
+    if(count > 0)
+    {
+        mCurrentItemsCount = count;
+        mCurrentItemsType = type;
+        mRingAngleStep = 360.0 / mCurrentItemsCount;
+        mItemsOffset %= count;
+        mRingTime = 0.0;
+        mRingAngle = 0.0;
+        return type;
+    }
+
+    return -1;
+}
+
+void gui_InventoryManager::frame(float time)
+{
+    if((mInventory == NULL) || (*mInventory == NULL))
+    {
+        mCurrentState = INVENTORY_DISABLED;
+        mNextState = INVENTORY_DISABLED;
+        return;
+    }
+
+    switch(mCurrentState)
+    {
+        case INVENTORY_R_LEFT:
+            mRingTime += time;
+            mRingAngle = mRingAngleStep * mRingTime / mRingRotatePeriod;
+            mNextState = INVENTORY_R_LEFT;
+            if(mRingTime >= mRingRotatePeriod)
+            {
+                mRingTime = 0.0;
+                mRingAngle = 0.0;
+                mNextState = INVENTORY_IDLE;
+                mCurrentState = INVENTORY_IDLE;
+                mItemsOffset--;
+                if(mItemsOffset < 0)
+                {
+                    mItemsOffset = mCurrentItemsCount - 1;
+                }
+            }
+            restoreItemAngle(time);
+            break;
+
+        case INVENTORY_R_RIGHT:
+            mRingTime += time;
+            mRingAngle = -mRingAngleStep * mRingTime / mRingRotatePeriod;
+            mNextState = INVENTORY_R_RIGHT;
+            if(mRingTime >= mRingRotatePeriod)
+            {
+                mRingTime = 0.0;
+                mRingAngle = 0.0;
+                mNextState = INVENTORY_IDLE;
+                mCurrentState = INVENTORY_IDLE;
+                mItemsOffset++;
+                if(mItemsOffset >= mCurrentItemsCount)
+                {
+                    mItemsOffset = 0;
+                }
+            }
+            restoreItemAngle(time);
+            break;
+
+        case INVENTORY_IDLE:
+            mRingTime = 0.0;
+            switch(mNextState)
+            {
+                default:
+                case INVENTORY_IDLE:
+                    mItemTime += time;
+                    mItemAngle = 360.0 * mItemTime / mItemRotatePeriod;
+                    if(mItemTime >= mItemRotatePeriod)
+                    {
+                        mItemTime = 0.0;
+                        mItemAngle = 0.0;
+                    }
+                    mLabel_ItemName.show = 1;
+                    mLabel_Title.show = 1;
+                    break;
+
+                case INVENTORY_CLOSE:
+                    Audio_Send(Script_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUCLOSE));
+                    mLabel_ItemName.show = 0;
+                    mLabel_Title.show = 0;
+                    mCurrentState = mNextState;
+                    break;
+
+                case INVENTORY_R_LEFT:
+                case INVENTORY_R_RIGHT:
+                    Audio_Send(TR_AUDIO_SOUND_MENUROTATE);
+                    mLabel_ItemName.show = 0;
+                    mCurrentState = mNextState;
+                    mItemTime = 0.0;
+                    break;
+
+                case INVENTORY_UP:
+                    mNextItemsCount = this->getItemElementsCountByType(mCurrentItemsType + 1);
+                    if(mNextItemsCount > 0)
+                    {
+                        //Audio_Send(Script_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUCLOSE));
+                        mCurrentState = mNextState;
+                        mRingTime = 0.0;
+                    }
+                    else
+                    {
+                        mNextState = INVENTORY_IDLE;
+                    }
+                    mLabel_ItemName.show = 0;
+                    mLabel_Title.show = 0;
+                    break;
+
+                case INVENTORY_DOWN:
+                    mNextItemsCount = this->getItemElementsCountByType(mCurrentItemsType - 1);
+                    if(mNextItemsCount > 0)
+                    {
+                        //Audio_Send(Script_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUCLOSE));
+                        mCurrentState = mNextState;
+                        mRingTime = 0.0;
+                    }
+                    else
+                    {
+                        mNextState = INVENTORY_IDLE;
+                    }
+                    mLabel_ItemName.show = 0;
+                    mLabel_Title.show = 0;
+                    break;
+            };
+            break;
+
+        case INVENTORY_DISABLED:
+            if(mNextState == INVENTORY_OPEN)
+            {
+                if(setItemsType(mCurrentItemsType) >= 0)
+                {
+                    Audio_Send(Script_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUOPEN));
+                    mCurrentState = INVENTORY_OPEN;
+                    mRingAngle = 180.0;
+                    mRingVerticalAngle = 180.0;
+                }
+            }
+            break;
+
+        case INVENTORY_UP:
+            mCurrentState = INVENTORY_UP;
+            mNextState = INVENTORY_UP;
+            mRingTime += time;
+            if(mRingTime < mRingRotatePeriod)
+            {
+                restoreItemAngle(time);
+                mRingRadius = mBaseRingRadius * (mRingRotatePeriod - mRingTime) / mRingRotatePeriod;
+                mVerticalOffset = - mBaseRingRadius * mRingTime / mRingRotatePeriod;
+                mRingAngle += 180.0 * time / mRingRotatePeriod;
+            }
+            else if(mRingTime < 2.0 * mRingRotatePeriod)
+            {
+                if(mRingTime - time <= mRingRotatePeriod)
+                {
+                    //Audio_Send(lua_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUOPEN));
+                    mRingRadius = 0.0;
+                    mVerticalOffset = mBaseRingRadius;
+                    mRingAngleStep = 360.0 / mNextItemsCount;
+                    mRingAngle = 180.0;
+                    mCurrentItemsType++;
+                    mCurrentItemsCount = mNextItemsCount;
+                    mItemsOffset = 0;
+                    setTitle(mCurrentItemsType);
+                }
+                mRingRadius = mBaseRingRadius * (mRingTime - mRingRotatePeriod) / mRingRotatePeriod;
+                mVerticalOffset -= mBaseRingRadius * time / mRingRotatePeriod;
+                mRingAngle -= 180.0 * time / mRingRotatePeriod;
+            }
+            else
+            {
+                mNextState = INVENTORY_IDLE;
+                mCurrentState = INVENTORY_IDLE;
+                mRingAngle = 0.0;
+                mVerticalOffset = 0.0;
+            }
+            break;
+
+        case INVENTORY_DOWN:
+            mCurrentState = INVENTORY_DOWN;
+            mNextState = INVENTORY_DOWN;
+            mRingTime += time;
+            if(mRingTime < mRingRotatePeriod)
+            {
+                restoreItemAngle(time);
+                mRingRadius = mBaseRingRadius * (mRingRotatePeriod - mRingTime) / mRingRotatePeriod;
+                mVerticalOffset = mBaseRingRadius * mRingTime / mRingRotatePeriod;
+                mRingAngle += 180.0 * time / mRingRotatePeriod;
+            }
+            else if(mRingTime < 2.0 * mRingRotatePeriod)
+            {
+                if(mRingTime - time <= mRingRotatePeriod)
+                {
+                    //Audio_Send(lua_GetGlobalSound(engine_lua, TR_AUDIO_SOUND_GLOBALID_MENUOPEN));
+                    mRingRadius = 0.0;
+                    mVerticalOffset = -mBaseRingRadius;
+                    mRingAngleStep = 360.0 / mNextItemsCount;
+                    mRingAngle = 180.0;
+                    mCurrentItemsType--;
+                    mCurrentItemsCount = mNextItemsCount;
+                    mItemsOffset = 0;
+                    setTitle(mCurrentItemsType);
+                }
+                mRingRadius = mBaseRingRadius * (mRingTime - mRingRotatePeriod) / mRingRotatePeriod;
+                mVerticalOffset += mBaseRingRadius * time / mRingRotatePeriod;
+                mRingAngle -= 180.0 * time / mRingRotatePeriod;
+            }
+            else
+            {
+                mNextState = INVENTORY_IDLE;
+                mCurrentState = INVENTORY_IDLE;
+                mRingAngle = 0.0;
+                mVerticalOffset = 0.0;
+            }
+            break;
+
+        case INVENTORY_OPEN:
+            mRingTime += time;
+            mRingRadius = mBaseRingRadius * mRingTime / mRingRotatePeriod;
+            mRingAngle -= 180.0 * time / mRingRotatePeriod;
+            mRingVerticalAngle -= 180.0 * time / mRingRotatePeriod;
+            if(mRingTime >= mRingRotatePeriod)
+            {
+                mCurrentState = INVENTORY_IDLE;
+                mNextState = INVENTORY_IDLE;
+                mRingVerticalAngle = 0;
+
+                mRingRadius = mBaseRingRadius;
+                mRingTime = 0.0;
+                mRingAngle = 0.0;
+                mVerticalOffset = 0.0;
+                setTitle(GUI_MENU_ITEMTYPE_SUPPLY);
+            }
+            break;
+
+        case INVENTORY_CLOSE:
+            mRingTime += time;
+            mRingRadius = mBaseRingRadius * (mRingRotatePeriod - mRingTime) / mRingRotatePeriod;
+            mRingAngle += 180.0 * time / mRingRotatePeriod;
+            mRingVerticalAngle += 180.0 * time / mRingRotatePeriod;
+            if(mRingTime >= mRingRotatePeriod)
+            {
+                mCurrentState = INVENTORY_DISABLED;
+                mNextState = INVENTORY_DISABLED;
+                mRingVerticalAngle = 180.0;
+                mRingTime = 0.0;
+                mLabel_Title.show = 0;
+                mRingRadius = mBaseRingRadius;
+                mCurrentItemsType = 1;
+            }
+            break;
+    }
+}
+
+void gui_InventoryManager::render()
+{
+    if((mCurrentState != INVENTORY_DISABLED) && (mInventory != NULL) && (*mInventory != NULL))
+    {
+        float matrix[16], offset[3], ang;
+        int num = 0;
+        for(inventory_node_p i = *mInventory; i; i = i->next)
+        {
+            base_item_p bi = World_GetBaseItemByID(i->id);
+            if((bi == NULL) || (bi->type != mCurrentItemsType))
+            {
+                continue;
+            }
+
+            Mat4_E_macro(matrix);
+            matrix[12 + 2] = - mBaseRingRadius * 2.0;
+            ang = (25.0f + mRingVerticalAngle) * M_PI / 180.0f;
+            Mat4_RotateX_SinCos(matrix, sinf(ang), cosf(ang));
+            ang = (mRingAngleStep * (-mItemsOffset + num) + mRingAngle) * M_PI / 180.0f;
+            Mat4_RotateY_SinCos(matrix, sinf(ang), cosf(ang));
+            offset[0] = 0.0;
+            offset[1] = mVerticalOffset;
+            offset[2] = mRingRadius;
+            Mat4_Translate(matrix, offset);
+            Mat4_RotateX_SinCos(matrix,-1.0f, 0.0f);  //-90.0
+            Mat4_RotateZ_SinCos(matrix, 1.0f, 0.0f);  //90.0
+            if(num == mItemsOffset)
+            {
+                if(bi->name[0])
+                {
+                    if(i->count == 1)
+                    {
+                        strncpy(mLabel_ItemName_text, bi->name, GUI_LINE_DEFAULTSIZE);
+                    }
+                    else
+                    {
+                        snprintf(mLabel_ItemName_text, GUI_LINE_DEFAULTSIZE, "%s (%d)", bi->name, i->count);
+                    }
+                }
+                else
+                {
+                    snprintf(mLabel_ItemName_text, GUI_LINE_DEFAULTSIZE, "ITEM_ID_%d (%d)", i->id, i->count);
+                }
+                ang = M_PI_2 + M_PI * mItemAngle / 180.0f - ang;
+                Mat4_RotateZ_SinCos(matrix, sinf(ang), cosf(ang));
+                Item_Frame(bi->bf, 0.0);                                        // here will be time != 0 for using items animation
+            }
+            else
+            {
+                ang = M_PI_2 - ang;
+                Mat4_RotateZ_SinCos(matrix, sinf(ang), cosf(ang));
+                Item_Frame(bi->bf, 0.0);
+            }
+            offset[0] = -0.5 * bi->bf->centre[0];
+            offset[1] = -0.5 * bi->bf->centre[1];
+            offset[2] = -0.5 * bi->bf->centre[2];
+            Mat4_Translate(matrix, offset);
+            Mat4_Scale(matrix, 0.7, 0.7, 0.7);
+            Gui_RenderItem(bi->bf, 0.0, matrix);
+            num++;
+        }
     }
 }
 
@@ -614,127 +849,147 @@ void Gui_SwitchGLMode(char is_gui)
         const GLfloat far_dist = 4096.0f;
         const GLfloat near_dist = -1.0f;
 
-        guiProjectionMatrix = matrix4{};                                        // identity matrix
-        guiProjectionMatrix[0][0] = 2.0f / static_cast<GLfloat>(screen_info.w);
-        guiProjectionMatrix[1][1] = 2.0f / static_cast<GLfloat>(screen_info.h);
-        guiProjectionMatrix[2][2] =-2.0f / (far_dist - near_dist);
-        guiProjectionMatrix[3][0] =-1.0f;
-        guiProjectionMatrix[3][1] =-1.0f;
-        guiProjectionMatrix[3][2] =-(far_dist + near_dist) / (far_dist - near_dist);
+        Mat4_E_macro(guiProjectionMatrix);
+        guiProjectionMatrix[0 * 4 + 0] = 2.0 / ((GLfloat)screen_info.w);
+        guiProjectionMatrix[1 * 4 + 1] = 2.0 / ((GLfloat)screen_info.h);
+        guiProjectionMatrix[2 * 4 + 2] =-2.0 / (far_dist - near_dist);
+        guiProjectionMatrix[3 * 4 + 0] =-1.0;
+        guiProjectionMatrix[3 * 4 + 1] =-1.0;
+        guiProjectionMatrix[3 * 4 + 2] =-(far_dist + near_dist) / (far_dist - near_dist);
     }
     else                                                                        // set camera coordinate system
     {
-        guiProjectionMatrix = engine_camera.m_glProjMat;
+        memcpy(guiProjectionMatrix, engine_camera.gl_proj_mat, sizeof(GLfloat[16]));
     }
 }
 
-struct gui_buffer_entry_s
+void Gui_FillBackgroundBuffer()
 {
-    GLfloat position[2];
-    uint8_t color[4];
-};
+    GLfloat x0 = 0.0f;
+    GLfloat y0 = 0.0f;
+    GLfloat x1 = screen_info.w;
+    GLfloat y1 = screen_info.h;
+    GLfloat *v, backgroundArray[32];
+    GLfloat color[4] = {0.0f, 0.0f, 0.0f, 0.5f};
+
+    v = backgroundArray;
+   *v++ = x0; *v++ = y0;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0f; *v++ = 0.0f;
+
+   *v++ = x1; *v++ = y0;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 1.0f; *v++ = 0.0f;
+
+   *v++ = x1; *v++ = y1;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 1.0f; *v++ = 1.0f;
+
+   *v++ = x0; *v++ = y1;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0f; *v++ = 1.0f;
+
+    qglBindBufferARB(GL_ARRAY_BUFFER, backgroundBuffer);
+    qglBufferDataARB(GL_ARRAY_BUFFER, sizeof(GLfloat[32]), backgroundArray, GL_STATIC_DRAW);
+}
 
 void Gui_FillCrosshairBuffer()
 {
-    gui_buffer_entry_s crosshair_buf[4] = {
-        {{static_cast<GLfloat>(screen_info.w / 2.0f - 5.f), (static_cast<GLfloat>(screen_info.h) / 2.0f)}, {255, 0, 0, 255}},
-        {{static_cast<GLfloat>(screen_info.w / 2.0f + 5.f), (static_cast<GLfloat>(screen_info.h) / 2.0f)}, {255, 0, 0, 255}},
-        {{static_cast<GLfloat>(screen_info.w / 2.0f), (static_cast<GLfloat>(screen_info.h) / 2.0f - 5.f)}, {255, 0, 0, 255}},
-        {{static_cast<GLfloat>(screen_info.w / 2.0f), (static_cast<GLfloat>(screen_info.h) / 2.0f + 5.f)}, {255, 0, 0, 255}}
-    };
+    GLfloat x = (GLfloat)screen_info.w / 2.0f;
+    GLfloat y = (GLfloat)screen_info.h / 2.0f;
+    GLfloat *v, crosshairArray[32];
+    const GLfloat size = 8.0f;
+    const GLfloat color[4] = {1.0f, 0.0f, 0.0f, 1.0f};
 
-    glBindBuffer(GL_ARRAY_BUFFER, crosshairBuffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(crosshair_buf), crosshair_buf, GL_STATIC_DRAW);
+    v = crosshairArray;
+   *v++ = x; *v++ = y - size;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0; *v++ = 0.0;
 
-    VertexArrayAttribute attribs[] = {
-        VertexArrayAttribute(GuiShaderDescription::position, 2, GL_FLOAT, false, crosshairBuffer, sizeof(gui_buffer_entry_s), offsetof(gui_buffer_entry_s, position)),
-        VertexArrayAttribute(GuiShaderDescription::color, 4, GL_UNSIGNED_BYTE, true, crosshairBuffer, sizeof(gui_buffer_entry_s), offsetof(gui_buffer_entry_s, color))
-    };
-    crosshairArray = new VertexArray(0, 2, attribs);
+   *v++ = x; *v++ = y + size;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0; *v++ = 0.0;
+
+   *v++ = x - size; *v++ = y;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0; *v++ = 0.0;
+
+   *v++ = x + size; *v++ = y;
+    vec4_copy(v, color);
+    v += 4;
+   *v++ = 0.0; *v++ = 0.0;
+
+    // copy vertices into GL buffer
+    qglBindBufferARB(GL_ARRAY_BUFFER, crosshairBuffer);
+    qglBufferDataARB(GL_ARRAY_BUFFER, sizeof(GLfloat[32]), crosshairArray, GL_STATIC_DRAW);
 }
 
 void Gui_DrawCrosshair()
 {
-    GuiShaderDescription *shader = renderer.shaderManager()->getGuiShader(false);
-
-    glUseProgram(shader->program);
-    GLfloat factor[2] = {
-        2.0f / screen_info.w,
-        2.0f / screen_info.h
-    };
-    glUniform2fv(shader->factor, 1, factor);
-    GLfloat offset[2] = { -1.f, -1.f };
-    glUniform2fv(shader->offset, 1, offset);
-
-    crosshairArray->bind();
-
-    glDrawArrays(GL_LINES, 0, 4);
-}
-
-void Gui_DrawFaders()
-{
-    for(auto& i : faderType)
-    {
-        i.second.Show();
-    }
+    // TBI: actual ingame crosshair
+    BindWhiteTexture();
+    qglBindBufferARB(GL_ARRAY_BUFFER_ARB, crosshairBuffer);
+    qglVertexPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)0);
+    qglColorPointer(4, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[2]));
+    qglTexCoordPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[6]));
+    qglDrawArrays(GL_LINES, 0, 4);
 }
 
 void Gui_DrawBars()
 {
-    if(engine_world.character)
+    entity_p player = World_GetPlayer();
+    if(player && player->character)
     {
-        if(engine_world.character->m_weaponCurrentState > WeaponState::HideToReady)
-            Bar[BarType::Health].Forced = true;
+        if(player->character->weapon_current_state > WEAPON_STATE_HIDE_TO_READY)
+        {
+            Bar[BAR_HEALTH].Forced = true;
+        }
 
-        if(engine_world.character->getParam(PARAM_POISON) > 0.0)
-            Bar[BarType::Health].Alternate = true;
-
-        Bar[BarType::Air].Show(engine_world.character->getParam(PARAM_AIR));
-        Bar[BarType::Stamina].Show(engine_world.character->getParam(PARAM_STAMINA));
-        Bar[BarType::Health].Show(engine_world.character->getParam(PARAM_HEALTH));
-        Bar[BarType::Warmth].Show(engine_world.character->getParam(PARAM_WARMTH));
+        Bar[BAR_AIR].Show    (Character_GetParam(player, PARAM_AIR    ));
+        Bar[BAR_STAMINA].Show(Character_GetParam(player, PARAM_STAMINA));
+        Bar[BAR_HEALTH].Show (Character_GetParam(player, PARAM_HEALTH ));
+        Bar[BAR_WARMTH].Show (Character_GetParam(player, PARAM_WARMTH ));
     }
 }
 
 void Gui_DrawInventory()
 {
-    //if (!main_inventory_menu->IsVisible())
     main_inventory_manager->frame(engine_frame_time);
-    if(main_inventory_manager->getCurrentState() == InventoryManager::InventoryState::Disabled)
+    if(main_inventory_manager->getCurrentState() == gui_InventoryManager::INVENTORY_DISABLED)
     {
         return;
     }
 
-    glClear(GL_DEPTH_BUFFER_BIT);
+    qglDepthMask(GL_FALSE);
+    {
+        BindWhiteTexture();
+        qglBindBufferARB(GL_ARRAY_BUFFER_ARB, backgroundBuffer);
+        qglVertexPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)0);
+        qglColorPointer(4, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[2]));
+        qglTexCoordPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[6]));
+        qglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    }
+    qglDepthMask(GL_TRUE);
+    qglClear(GL_DEPTH_BUFFER_BIT);
 
-    glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT);
-
-    glPolygonMode(GL_FRONT, GL_FILL);
-    glFrontFace(GL_CCW);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_ALPHA_TEST);
-    glDepthMask(GL_FALSE);
-
-    // Background
-
-    GLfloat upper_color[4] = {0.0,0.0,0.0,0.45f};
-    GLfloat lower_color[4] = {0.0,0.0,0.0,0.75f};
-
-    Gui_DrawRect(0.0, 0.0, static_cast<GLfloat>(screen_info.w), static_cast<GLfloat>(screen_info.h),
-                 upper_color, upper_color, lower_color, lower_color,
-                 loader::BlendingMode::Opaque);
-
-    glDepthMask(GL_TRUE);
-    glPopAttrib();
-
-    //GLfloat color[4] = {0,0,0,0.45};
-    //Gui_DrawRect(0,0,(GLfloat)screen_info.w,(GLfloat)screen_info.h, color, color, color, color, GL_SRC_ALPHA + GL_ONE_MINUS_SRC_ALPHA);
+    qglPushAttrib(GL_ENABLE_BIT);
+    qglEnable(GL_ALPHA_TEST);
+    qglPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
+    qglEnableClientState(GL_NORMAL_ARRAY);
+    qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
     Gui_SwitchGLMode(0);
-    //main_inventory_menu->Render(); //engine_world.character->character->inventory
     main_inventory_manager->render();
     Gui_SwitchGLMode(1);
+    qglPopClientAttrib();
+    qglPopAttrib();
 }
 
 void Gui_NotifierStart(int item)
@@ -755,32 +1010,110 @@ void Gui_DrawNotifier()
 
 void Gui_DrawLoadScreen(int value)
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    qglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    Gui_SwitchGLMode(1);
+    qglPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT);
+    qglPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+    qglPixelStorei(GL_UNPACK_LSB_FIRST, GL_FALSE);
+    qglPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
+    qglEnableClientState(GL_VERTEX_ARRAY);
+    qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    qglEnableClientState(GL_COLOR_ARRAY);
+    qglDisableClientState(GL_NORMAL_ARRAY);
 
-    glPixelStorei(GL_UNPACK_LSB_FIRST, GL_FALSE);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    qglEnable(GL_BLEND);
+    qglEnable(GL_TEXTURE_2D);
+    qglDisable(GL_ALPHA_TEST);
+    qglDepthMask(GL_FALSE);
 
-    faderType[FaderType::LoadScreen].Show();
-    Bar[BarType::Loading].Show(value);
+    qglPolygonMode(GL_FRONT, GL_FILL);
+    qglFrontFace(GL_CCW);
 
-    glDepthMask(GL_TRUE);
+    const GLfloat color_w[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    const text_shader_description *shader = renderer.shaderManager->getTextShader();
+    screenSize[0] = screen_info.w;
+    screenSize[1] = screen_info.h;
+    qglUseProgramObjectARB(shader->program);
+    qglUniform1iARB(shader->sampler, 0);
+    qglUniform2fvARB(shader->screenSize, 1, screenSize);
 
-    Gui_SwitchGLMode(0);
+    Gui_DrawRect(0.0, 0.0, screen_info.w, screen_info.h, color_w, color_w, color_w, color_w, BM_OPAQUE, load_screen_tex);
+    Bar[BAR_LOADING].Show(value);
 
-    SDL_GL_SwapWindow(sdl_window);
+    qglDepthMask(GL_TRUE);
+    qglPopClientAttrib();
+    qglPopAttrib();
+
+    Engine_GLSwapWindow();
 }
 
-namespace
+inline bool ext_compare(const char s1[3], const char s2[3])
 {
-    GLuint rectanglePositionBuffer = 0;
-    GLuint rectangleColorBuffer = 0;
-    std::unique_ptr<VertexArray> rectangleArray = nullptr;
+    return (tolower(s1[0]) == tolower(s2[0])) &&
+        (tolower(s1[1]) == tolower(s2[1])) &&
+        (tolower(s1[2]) == tolower(s2[2]));
+}
+
+bool Gui_LoadScreenAssignPic(const char* pic_name)
+{
+    size_t len = strlen(pic_name);
+    int image_format = 0;
+
+    if(len > 3)
+    {
+        const char *ext = pic_name + len - 3;
+        if(ext_compare(ext, "png"))
+        {
+            image_format = IMAGE_FORMAT_PNG;
+        }
+        else if(ext_compare(ext, "pcx"))
+        {
+            image_format = IMAGE_FORMAT_PCX;
+        }
+    }
+
+    uint8_t *img_pixels = NULL;
+    uint32_t img_w = 0;
+    uint32_t img_h = 0;
+    uint32_t img_bpp = 32;
+    if(Image_Load(pic_name, image_format, &img_pixels, &img_w, &img_h, &img_bpp))
+    {
+        GLenum       texture_format;
+        GLuint       color_depth;
+
+        if(img_bpp == 32)        // Contains an alpha channel
+        {
+            texture_format = GL_RGBA;
+            color_depth = GL_RGBA;
+        }
+        else if(img_bpp == 24)   // No alpha channel
+        {
+            texture_format = GL_RGB;
+            color_depth = GL_RGB;
+        }
+        else
+        {
+            free(img_pixels);
+            return false;
+        }
+
+        // Bind the texture object
+        qglBindTexture(GL_TEXTURE_2D, load_screen_tex);
+
+        // Set the texture's stretching properties
+        qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // Edit the texture object's image data using the information SDL_Surface gives us
+        qglTexImage2D(GL_TEXTURE_2D, 0, color_depth, img_w, img_h, 0,
+                     texture_format, GL_UNSIGNED_BYTE, img_pixels);
+        qglBindTexture(GL_TEXTURE_2D, 0);
+        free(img_pixels);
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -790,723 +1123,95 @@ void Gui_DrawRect(const GLfloat &x, const GLfloat &y,
                   const GLfloat &width, const GLfloat &height,
                   const float colorUpperLeft[], const float colorUpperRight[],
                   const float colorLowerLeft[], const float colorLowerRight[],
-                  const loader::BlendingMode blendMode,
+                  const int &blendMode,
                   const GLuint texture)
 {
     switch(blendMode)
     {
-        case loader::BlendingMode::Hide:
+        case BM_HIDE:
             return;
-        case loader::BlendingMode::Multiply:
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        case BM_MULTIPLY:
+            qglBlendFunc(GL_SRC_ALPHA, GL_ONE);
             break;
-        case loader::BlendingMode::SimpleShade:
-            glBlendFunc(GL_ONE_MINUS_SRC_COLOR, GL_ONE_MINUS_SRC_ALPHA);
+        case BM_SIMPLE_SHADE:
+            qglBlendFunc(GL_ONE_MINUS_SRC_COLOR, GL_ONE_MINUS_SRC_ALPHA);
             break;
-        case loader::BlendingMode::Screen:
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        case BM_SCREEN:
+            qglBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             break;
         default:
-        case loader::BlendingMode::Opaque:
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        case BM_OPAQUE:
+            qglBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             break;
     };
 
-    if(rectanglePositionBuffer == 0)
+    GLfloat x0 = x;
+    GLfloat y0 = y + height;
+    GLfloat x1 = x + width;
+    GLfloat y1 = y;
+    GLfloat *v, rectArray[32];
+
+    v = rectArray;
+   *v++ = x0; *v++ = y0;
+   *v++ = 0.0f; *v++ = 0.0f;
+    vec4_copy(v, colorUpperLeft);
+    v += 4;
+
+   *v++ = x1; *v++ = y0;
+   *v++ = 1.0f; *v++ = 0.0f;
+    vec4_copy(v, colorUpperRight);
+    v += 4;
+
+   *v++ = x1; *v++ = y1;
+   *v++ = 1.0f; *v++ = 1.0f;
+    vec4_copy(v, colorLowerRight);
+    v += 4;
+
+   *v++ = x0; *v++ = y1;
+   *v++ = 0.0f; *v++ = 1.0f;
+    vec4_copy(v, colorLowerLeft);
+
+    if(qglIsTexture(texture))
     {
-        glGenBuffers(1, &rectanglePositionBuffer);
-        glBindBuffer(GL_ARRAY_BUFFER, rectanglePositionBuffer);
-        GLfloat rectCoords[8] = { 0, 0,
-            1, 0,
-            1, 1,
-            0, 1 };
-        glBufferData(GL_ARRAY_BUFFER, sizeof(rectCoords), rectCoords, GL_STATIC_DRAW);
-
-        glGenBuffers(1, &rectangleColorBuffer);
-
-        VertexArrayAttribute attribs[] = {
-            VertexArrayAttribute(GuiShaderDescription::position, 2, GL_FLOAT, false, rectanglePositionBuffer, sizeof(GLfloat[2]), 0),
-            VertexArrayAttribute(GuiShaderDescription::color, 4, GL_FLOAT, false, rectangleColorBuffer, sizeof(GLfloat[4]), 0),
-        };
-        rectangleArray.reset(new VertexArray(0, 2, attribs));
-    }
-
-    glBindBuffer(GL_ARRAY_BUFFER, rectangleColorBuffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat[4]) * 4, nullptr, GL_STREAM_DRAW);
-    GLfloat *rectColors = static_cast<GLfloat *>(glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY));
-    memcpy(rectColors + 0, colorLowerLeft, sizeof(GLfloat) * 4);
-    memcpy(rectColors + 4, colorLowerRight, sizeof(GLfloat) * 4);
-    memcpy(rectColors + 8, colorUpperRight, sizeof(GLfloat) * 4);
-    memcpy(rectColors + 12, colorUpperLeft, sizeof(GLfloat) * 4);
-    glUnmapBuffer(GL_ARRAY_BUFFER);
-
-    const GLfloat offset[2] = { x / (screen_info.w*0.5f) - 1.f, y / (screen_info.h*0.5f) - 1.f };
-    const GLfloat factor[2] = { (width / screen_info.w) * 2.0f, (height / screen_info.h) * 2.0f };
-
-    GuiShaderDescription *shader = renderer.shaderManager()->getGuiShader(texture != 0);
-    glUseProgram(shader->program);
-    glUniform1i(shader->sampler, 0);
-    if(texture)
-    {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture);
-    }
-    glUniform2fv(shader->offset, 1, offset);
-    glUniform2fv(shader->factor, 1, factor);
-
-    rectangleArray->bind();
-
-    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-}
-
-bool Gui_FadeStart(FaderType fader, FaderDir fade_direction)
-{
-    // If fader exists, and is not active, we engage it.
-
-    if((fader < FaderType::Sentinel) && (faderType[fader].IsFading() != FaderStatus::Fading))
-    {
-        faderType[fader].Engage(fade_direction);
-        return true;
+        qglBindTexture(GL_TEXTURE_2D, texture);
     }
     else
     {
-        return false;
+        BindWhiteTexture();
     }
-}
-
-bool Gui_FadeStop(FaderType fader)
-{
-    if((fader < FaderType::Sentinel) && (faderType[fader].IsFading() != FaderStatus::Idle))
-    {
-        faderType[fader].Cut();
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-bool Gui_FadeAssignPic(FaderType fader, const std::string& pic_name)
-{
-    if((fader >= FaderType::Effect) && (fader < FaderType::Sentinel))
-    {
-        char buf[MAX_ENGINE_PATH];
-
-        ///@STICK: we can write incorrect image file extension, but engine will try all supported formats
-        strncpy(buf, pic_name.c_str(), MAX_ENGINE_PATH);
-        if(!Engine_FileFound(buf, false))
-        {
-            size_t ext_len = 0;
-
-            for(; ext_len + 1 < pic_name.length(); ext_len++)
-            {
-                if(buf[pic_name.length() - ext_len - 1] == '.')
-                {
-                    break;
-                }
-            }
-
-            if(ext_len + 1 == pic_name.length())
-            {
-                return false;
-            }
-
-            buf[pic_name.length() - ext_len + 0] = 'b';
-            buf[pic_name.length() - ext_len + 1] = 'm';
-            buf[pic_name.length() - ext_len + 2] = 'p';
-            buf[pic_name.length() - ext_len + 3] = 0;
-            if(!Engine_FileFound(buf, false))
-            {
-                buf[pic_name.length() - ext_len + 0] = 'j';
-                buf[pic_name.length() - ext_len + 1] = 'p';
-                buf[pic_name.length() - ext_len + 2] = 'g';
-                if(!Engine_FileFound(buf, false))
-                {
-                    buf[pic_name.length() - ext_len + 0] = 'p';
-                    buf[pic_name.length() - ext_len + 1] = 'n';
-                    buf[pic_name.length() - ext_len + 2] = 'g';
-                    if(!Engine_FileFound(buf, false))
-                    {
-                        buf[pic_name.length() - ext_len + 0] = 't';
-                        buf[pic_name.length() - ext_len + 1] = 'g';
-                        buf[pic_name.length() - ext_len + 2] = 'a';
-                        if(!Engine_FileFound(buf, false))
-                        {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-
-        return faderType[fader].SetTexture(buf);
-    }
-
-    return false;
-}
-
-void Gui_FadeSetup(FaderType fader,
-                   uint8_t alpha, uint8_t R, uint8_t G, uint8_t B, loader::BlendingMode blending_mode,
-                   uint16_t fadein_speed, uint16_t fadeout_speed)
-{
-    if(fader >= FaderType::Sentinel) return;
-
-    faderType[fader].SetAlpha(alpha);
-    faderType[fader].SetColor(R, G, B);
-    faderType[fader].SetBlendingMode(blending_mode);
-    faderType[fader].SetSpeed(fadein_speed, fadeout_speed);
-}
-
-FaderStatus Gui_FadeCheck(FaderType fader)
-{
-    if((fader >= FaderType::Effect) && (fader < FaderType::Sentinel))
-    {
-        return faderType[fader].IsFading();
-    }
-    else
-    {
-        return FaderStatus::Invalid;
-    }
-}
-
-// ===================================================================================
-// ============================ FADER CLASS IMPLEMENTATION ===========================
-// ===================================================================================
-
-Fader::Fader()
-{
-    SetColor(0, 0, 0);
-    SetBlendingMode(loader::BlendingMode::Opaque);
-    SetAlpha(255);
-    SetSpeed(500);
-    SetDelay(0);
-
-    mActive = false;
-    mComplete = true;  // All faders must be initialized as complete to receive proper start-up callbacks.
-    mDirection = FaderDir::In;
-
-    mTexture = 0;
-}
-
-void Fader::SetAlpha(uint8_t alpha)
-{
-    mMaxAlpha = static_cast<float>(alpha) / 255;
-}
-
-void Fader::SetScaleMode(FaderScale mode)
-{
-    mTextureScaleMode = mode;
-}
-
-void Fader::SetColor(uint8_t R, uint8_t G, uint8_t B, FaderCorner corner)
-{
-    // Each corner of the fader could be colored independently, thus allowing
-    // to create gradient faders. It is nifty yet not so useful feature, so
-    // it is completely optional - if you won't specify corner, color will be
-    // set for the whole fader.
-
-    switch(corner)
-    {
-        case FaderCorner::TopLeft:
-            mTopLeftColor[0] = static_cast<GLfloat>(R) / 255;
-            mTopLeftColor[1] = static_cast<GLfloat>(G) / 255;
-            mTopLeftColor[2] = static_cast<GLfloat>(B) / 255;
-            break;
-
-        case FaderCorner::TopRight:
-            mTopRightColor[0] = static_cast<GLfloat>(R) / 255;
-            mTopRightColor[1] = static_cast<GLfloat>(G) / 255;
-            mTopRightColor[2] = static_cast<GLfloat>(B) / 255;
-            break;
-
-        case FaderCorner::BottomLeft:
-            mBottomLeftColor[0] = static_cast<GLfloat>(R) / 255;
-            mBottomLeftColor[1] = static_cast<GLfloat>(G) / 255;
-            mBottomLeftColor[2] = static_cast<GLfloat>(B) / 255;
-            break;
-
-        case FaderCorner::BottomRight:
-            mBottomRightColor[0] = static_cast<GLfloat>(R) / 255;
-            mBottomRightColor[1] = static_cast<GLfloat>(G) / 255;
-            mBottomRightColor[2] = static_cast<GLfloat>(B) / 255;
-            break;
-
-        default:
-            mTopRightColor[0] = static_cast<GLfloat>(R) / 255;
-            mTopRightColor[1] = static_cast<GLfloat>(G) / 255;
-            mTopRightColor[2] = static_cast<GLfloat>(B) / 255;
-
-            // Copy top right corner color to all other corners.
-
-            memcpy(mTopLeftColor, mTopRightColor, sizeof(GLfloat) * 4);
-            memcpy(mBottomRightColor, mTopRightColor, sizeof(GLfloat) * 4);
-            memcpy(mBottomLeftColor, mTopRightColor, sizeof(GLfloat) * 4);
-            break;
-    }
-}
-
-void Fader::SetBlendingMode(loader::BlendingMode mode)
-{
-    mBlendingMode = mode;
-}
-
-void Fader::SetSpeed(uint16_t fade_speed, uint16_t fade_speed_secondary)
-{
-    mSpeed = 1000.0 / static_cast<float>(fade_speed);
-    mSpeedSecondary = 1000.0 / static_cast<float>(fade_speed_secondary);
-}
-
-void Fader::SetDelay(uint32_t delay_msec)
-{
-    mMaxTime = static_cast<float>(delay_msec) / 1000.0;
-}
-
-void Fader::SetAspect()
-{
-    if(mTexture)
-    {
-        if((static_cast<float>(mTextureWidth) / static_cast<float>(screen_info.w)) >= (static_cast<float>(mTextureHeight) / static_cast<float>(screen_info.h)))
-        {
-            mTextureWide = true;
-            mTextureAspectRatio = static_cast<float>(mTextureHeight) / static_cast<float>(mTextureWidth);
-        }
-        else
-        {
-            mTextureWide = false;
-            mTextureAspectRatio = static_cast<float>(mTextureWidth) / static_cast<float>(mTextureHeight);
-        }
-    }
-}
-
-bool Fader::SetTexture(const char *texture_path)
-{
-#ifdef __APPLE_CC__
-    // Load the texture file using ImageIO
-    CGDataProviderRef provider = CGDataProviderCreateWithFilename(texture_path);
-    CFDictionaryRef empty = CFDictionaryCreate(kCFAllocatorDefault, nullptr, nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CGImageSourceRef source = CGImageSourceCreateWithDataProvider(provider, empty);
-    CGDataProviderRelease(provider);
-    CFRelease(empty);
-
-    // Check whether loading succeeded
-    CGImageSourceStatus status = CGImageSourceGetStatus(source);
-    if(status != kCGImageStatusComplete)
-    {
-        CFRelease(source);
-        ConsoleInfo::instance().warning(SYSWARN_IMAGE_NOT_LOADED, texture_path, status);
-        return false;
-    }
-
-    // Get the image
-    CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, nullptr);
-    CFRelease(source);
-    size_t width = CGImageGetWidth(image);
-    size_t height = CGImageGetHeight(image);
-
-    // Prepare the data to write to
-    uint8_t *data = new uint8_t[width * height * 4];
-
-    // Write image to bytes. This is done by drawing it into an off-screen image context using our data as the backing store
-    CGColorSpaceRef deviceRgb = CGColorSpaceCreateDeviceRGB();
-    CGContextRef context = CGBitmapContextCreate(data, width, height, 8, width * 4, deviceRgb, kCGImageAlphaPremultipliedFirst);
-    CGColorSpaceRelease(deviceRgb);
-    assert(context);
-
-    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image);
-
-    CGContextRelease(context);
-    CGImageRelease(image);
-
-    // Drop previously assigned texture, if it exists.
-    DropTexture();
-
-    // Have OpenGL generate a texture object handle for us
-    glGenTextures(1, &mTexture);
-
-    // Bind the texture object
-    glBindTexture(GL_TEXTURE_2D, mTexture);
-
-    // Set the texture's stretching properties
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // Load texture. The weird format works out to ARGB8 in the end
-    // (on little-endian systems), which is what we specified above and what
-    // OpenGL prefers internally.
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLuint)width, (GLuint)height, 0,
-                 GL_BGRA, GL_UNSIGNED_INT_8_8_8_8, data);
-
-    // Cleanup
-    delete[] data;
-
-    // Setup the additional required information
-    mTextureWidth = width;
-    mTextureHeight = height;
-
-    SetAspect();
-
-    ConsoleInfo::instance().notify(SYSNOTE_LOADED_FADER, texture_path);
-    return true;
-#else
-    SDL_Surface *surface = IMG_Load(texture_path);
-    GLenum       texture_format;
-    GLint        color_depth;
-
-    if(surface != nullptr)
-    {
-        // Get the color depth of the SDL surface
-        color_depth = surface->format->BytesPerPixel;
-
-        if(color_depth == 4)        // Contains an alpha channel
-        {
-            if(surface->format->Rmask == 0x000000ff)
-                texture_format = GL_RGBA;
-            else
-                texture_format = GL_BGRA;
-
-            color_depth = GL_RGBA;
-        }
-        else if(color_depth == 3)   // No alpha channel
-        {
-            if(surface->format->Rmask == 0x000000ff)
-                texture_format = GL_RGB;
-            else
-                texture_format = GL_BGR;
-
-            color_depth = GL_RGB;
-        }
-        else
-        {
-            ConsoleInfo::instance().warning(SYSWARN_NOT_TRUECOLOR_IMG, texture_path);
-            SDL_FreeSurface(surface);
-            return false;
-        }
-
-        // Drop previously assigned texture, if it exists.
-        DropTexture();
-
-        // Have OpenGL generate a texture object handle for us
-        glGenTextures(1, &mTexture);
-
-        // Bind the texture object
-        glBindTexture(GL_TEXTURE_2D, mTexture);
-
-        // Set the texture's stretching properties
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        // Edit the texture object's image data using the information SDL_Surface gives us
-        glTexImage2D(GL_TEXTURE_2D, 0, color_depth, surface->w, surface->h, 0,
-                     texture_format, GL_UNSIGNED_BYTE, surface->pixels);
-    }
-    else
-    {
-        ConsoleInfo::instance().warning(SYSWARN_IMG_NOT_LOADED_SDL, texture_path, SDL_GetError());
-        return false;
-    }
-
-    // Unbind the texture - is it really necessary?
-    // glBindTexture(GL_TEXTURE_2D, 0);
-
-    // Free the SDL_Surface only if it was successfully created
-    if(surface)
-    {
-        // Set additional parameters
-        mTextureWidth = surface->w;
-        mTextureHeight = surface->h;
-
-        SetAspect();
-
-        ConsoleInfo::instance().notify(SYSNOTE_LOADED_FADER, texture_path);
-        SDL_FreeSurface(surface);
-        return true;
-    }
-    else
-    {
-        /// if mTexture == 0 then trouble
-        if(glIsTexture(mTexture))
-        {
-            glDeleteTextures(1, &mTexture);
-        }
-        mTexture = 0;
-        return false;
-    }
-#endif
-}
-
-bool Fader::DropTexture()
-{
-    if(mTexture)
-    {
-        /// if mTexture is incorrect then maybe trouble
-        if(glIsTexture(mTexture))
-        {
-            glDeleteTextures(1, &mTexture);
-        }
-        mTexture = 0;
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-void Fader::Engage(FaderDir fade_dir)
-{
-    mDirection = fade_dir;
-    mActive = true;
-    mComplete = false;
-    mCurrentTime = 0.0;
-
-    if(mDirection == FaderDir::In)
-    {
-        mCurrentAlpha = mMaxAlpha;      // Fade in: set alpha to maximum.
-    }
-    else
-    {
-        mCurrentAlpha = 0.0;            // Fade out or timed: set alpha to zero.
-    }
-}
-
-void Fader::Cut()
-{
-    mActive = false;
-    mComplete = false;
-    mCurrentAlpha = 0.0;
-    mCurrentTime = 0.0;
-
-    DropTexture();
-}
-
-void Fader::Show()
-{
-    if(!mActive)
-    {
-        mComplete = true;
-        return;                                 // If fader is not active, don't render it.
-    }
-
-    if(mDirection == FaderDir::In)          // Fade in case
-    {
-        if(mCurrentAlpha > 0.0)                 // If alpha is more than zero, continue to fade.
-        {
-            mCurrentAlpha -= engine_frame_time * mSpeed;
-        }
-        else
-        {
-            mComplete = true;   // We've reached zero alpha, complete and disable fader.
-            mActive = false;
-            mCurrentAlpha = 0.0;
-            DropTexture();
-        }
-    }
-    else if(mDirection == FaderDir::Out)  // Fade out case
-    {
-        if(mCurrentAlpha < mMaxAlpha)   // If alpha is less than maximum, continue to fade.
-        {
-            mCurrentAlpha += engine_frame_time * mSpeed;
-        }
-        else
-        {
-            // We've reached maximum alpha, so complete fader but leave it active.
-            // This is needed for engine to receive proper callback in case some events are
-            // delayed to the next frame - e.g., level loading.
-
-            mComplete = true;
-            mCurrentAlpha = mMaxAlpha;
-        }
-    }
-    else    // Timed fader case
-    {
-        if(mCurrentTime <= mMaxTime)
-        {
-            if(mCurrentAlpha == mMaxAlpha)
-            {
-                mCurrentTime += engine_frame_time;
-            }
-            else if(mCurrentAlpha < mMaxAlpha)
-            {
-                mCurrentAlpha += engine_frame_time * mSpeed;
-            }
-            else
-            {
-                mCurrentAlpha = mMaxAlpha;
-            }
-        }
-        else
-        {
-            if(mCurrentAlpha > 0.0)
-            {
-                mCurrentAlpha -= engine_frame_time * mSpeedSecondary;
-            }
-            else
-            {
-                mComplete = true;          // We've reached zero alpha, complete and disable fader.
-                mActive = false;
-                mCurrentAlpha = 0.0;
-                mCurrentTime = 0.0;
-                DropTexture();
-            }
-        }
-    }
-
-    // Apply current alpha value to all vertices.
-
-    mTopLeftColor[3] = mCurrentAlpha;
-    mTopRightColor[3] = mCurrentAlpha;
-    mBottomLeftColor[3] = mCurrentAlpha;
-    mBottomRightColor[3] = mCurrentAlpha;
-
-    // Draw the rectangle.
-    // We draw it from the very top left corner to the end of the screen.
-
-    if(mTexture)
-    {
-        // Texture is always modulated with alpha!
-        GLfloat tex_color[4] = { mCurrentAlpha, mCurrentAlpha, mCurrentAlpha, mCurrentAlpha };
-
-        if(mTextureScaleMode == FaderScale::LetterBox)
-        {
-            if(mTextureWide)        // Texture is wider than the screen... Do letterbox.
-            {
-                // Draw lower letterbox.
-                Gui_DrawRect(0.0,
-                             0.0,
-                             screen_info.w,
-                             (screen_info.h - (screen_info.w * mTextureAspectRatio)) / 2,
-                             mBottomLeftColor, mBottomRightColor, mBottomLeftColor, mBottomRightColor,
-                             mBlendingMode);
-
-                // Draw texture.
-                Gui_DrawRect(0.0,
-                             (screen_info.h - (screen_info.w * mTextureAspectRatio)) / 2,
-                             screen_info.w,
-                             screen_info.w * mTextureAspectRatio,
-                             tex_color, tex_color, tex_color, tex_color,
-                             mBlendingMode,
-                             mTexture);
-
-                // Draw upper letterbox.
-                Gui_DrawRect(0.0,
-                             screen_info.h - (screen_info.h - (screen_info.w * mTextureAspectRatio)) / 2,
-                             screen_info.w,
-                             (screen_info.h - (screen_info.w * mTextureAspectRatio)) / 2,
-                             mTopLeftColor, mTopRightColor, mTopLeftColor, mTopRightColor,
-                             mBlendingMode);
-            }
-            else        // Texture is taller than the screen... Do pillarbox.
-            {
-                // Draw left pillarbox.
-                Gui_DrawRect(0.0,
-                             0.0,
-                             (screen_info.w - (screen_info.h / mTextureAspectRatio)) / 2,
-                             screen_info.h,
-                             mTopLeftColor, mTopLeftColor, mBottomLeftColor, mBottomLeftColor,
-                             mBlendingMode);
-
-                // Draw texture.
-                Gui_DrawRect((screen_info.w - (screen_info.h / mTextureAspectRatio)) / 2,
-                             0.0,
-                             screen_info.h / mTextureAspectRatio,
-                             screen_info.h,
-                             tex_color, tex_color, tex_color, tex_color,
-                             mBlendingMode,
-                             mTexture);
-
-                // Draw right pillarbox.
-                Gui_DrawRect(screen_info.w - (screen_info.w - (screen_info.h / mTextureAspectRatio)) / 2,
-                             0.0,
-                             (screen_info.w - (screen_info.h / mTextureAspectRatio)) / 2,
-                             screen_info.h,
-                             mTopRightColor, mTopRightColor, mBottomRightColor, mBottomRightColor,
-                             mBlendingMode);
-            }
-        }
-        else if(mTextureScaleMode == FaderScale::Zoom)
-        {
-            if(mTextureWide)    // Texture is wider than the screen - scale vertical.
-            {
-                Gui_DrawRect(-(((screen_info.h / mTextureAspectRatio) - screen_info.w) / 2),
-                             0.0,
-                             screen_info.h / mTextureAspectRatio,
-                             screen_info.h,
-                             tex_color, tex_color, tex_color, tex_color,
-                             mBlendingMode,
-                             mTexture);
-            }
-            else                // Texture is taller than the screen - scale horizontal.
-            {
-                Gui_DrawRect(0.0,
-                             -(((screen_info.w / mTextureAspectRatio) - screen_info.h) / 2),
-                             screen_info.w,
-                             screen_info.w / mTextureAspectRatio,
-                             tex_color, tex_color, tex_color, tex_color,
-                             mBlendingMode,
-                             mTexture);
-            }
-        }
-        else    // Simple stretch!
-        {
-            Gui_DrawRect(0.0,
-                         0.0,
-                         screen_info.w,
-                         screen_info.h,
-                         tex_color, tex_color, tex_color, tex_color,
-                         mBlendingMode,
-                         mTexture);
-        }
-    }
-    else    // No texture, simply draw colored rect.
-    {
-        Gui_DrawRect(0.0, 0.0, screen_info.w, screen_info.h,
-                     mTopLeftColor, mTopRightColor, mBottomLeftColor, mBottomRightColor,
-                     mBlendingMode);
-    }   // end if(mTexture)
-}
-
-FaderStatus Fader::IsFading()
-{
-    if(mComplete)
-    {
-        return FaderStatus::Complete;
-    }
-    else if(mActive)
-    {
-        return FaderStatus::Fading;
-    }
-    else
-    {
-        return FaderStatus::Idle;
-    }
+    qglBindBufferARB(GL_ARRAY_BUFFER, rectBuffer);
+    qglBufferDataARB(GL_ARRAY_BUFFER, sizeof(GLfloat[32]), rectArray, GL_DYNAMIC_DRAW);
+    qglVertexPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)0);
+    qglTexCoordPointer(2, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[2]));
+    qglColorPointer(4, GL_FLOAT, 8 * sizeof(GLfloat), (void *)sizeof(GLfloat[4]));
+    qglDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
 // ===================================================================================
 // ======================== PROGRESS BAR CLASS IMPLEMENTATION ========================
 // ===================================================================================
 
-ProgressBar::ProgressBar()
+gui_ProgressBar::gui_ProgressBar()
 {
     // Set up some defaults.
-    Visible = false;
+    Visible   = false;
     Alternate = false;
-    Invert = false;
-    Vertical = false;
-    Forced = false;
+    Invert    = false;
+    Vertical  = false;
+    Forced    = false;
 
     // Initialize parameters.
     // By default, bar is initialized with TR5-like health bar properties.
-    SetPosition(HorizontalAnchor::Left, 20, VerticalAnchor::Top, 20);
+    SetPosition(GUI_ANCHOR_HOR_LEFT, 20, GUI_ANCHOR_VERT_TOP, 20);
     SetSize(250, 25, 3);
-    SetColor(BarColorType::BaseMain, 255, 50, 50, 150);
-    SetColor(BarColorType::BaseFade, 100, 255, 50, 150);
-    SetColor(BarColorType::AltMain, 255, 180, 0, 220);
-    SetColor(BarColorType::AltFade, 255, 255, 0, 220);
-    SetColor(BarColorType::BackMain, 0, 0, 0, 160);
-    SetColor(BarColorType::BackFade, 60, 60, 60, 130);
-    SetColor(BarColorType::BorderMain, 200, 200, 200, 50);
-    SetColor(BarColorType::BorderFade, 80, 80, 80, 100);
+    SetColor(BASE_MAIN, 255, 50, 50, 150);
+    SetColor(BASE_FADE, 100, 255, 50, 150);
+    SetColor(ALT_MAIN, 255, 180, 0, 220);
+    SetColor(ALT_FADE, 255, 255, 0, 220);
+    SetColor(BACK_MAIN, 0, 0, 0, 160);
+    SetColor(BACK_FADE, 60, 60, 60, 130);
+    SetColor(BORDER_MAIN, 200, 200, 200, 50);
+    SetColor(BORDER_FADE, 80, 80, 80, 100);
     SetValues(1000, 300);
     SetBlink(300);
     SetExtrude(true, 100);
@@ -1516,74 +1221,74 @@ ProgressBar::ProgressBar()
 // Resize bar.
 // This function should be called every time resize event occurs.
 
-void ProgressBar::Resize()
+void gui_ProgressBar::Resize()
 {
     RecalculateSize();
     RecalculatePosition();
 }
 
 // Set specified color.
-void ProgressBar::SetColor(BarColorType colType,
-                               uint8_t R, uint8_t G, uint8_t B, uint8_t A)
+void gui_ProgressBar::SetColor(BarColorType colType,
+                           uint8_t R, uint8_t G, uint8_t B, uint8_t A)
 {
     float maxColValue = 255.0;
 
     switch(colType)
     {
-        case BarColorType::BaseMain:
-            mBaseMainColor[0] = static_cast<float>(R) / maxColValue;
-            mBaseMainColor[1] = static_cast<float>(G) / maxColValue;
-            mBaseMainColor[2] = static_cast<float>(B) / maxColValue;
-            mBaseMainColor[3] = static_cast<float>(A) / maxColValue;
+        case BASE_MAIN:
+            mBaseMainColor[0] = (float)R / maxColValue;
+            mBaseMainColor[1] = (float)G / maxColValue;
+            mBaseMainColor[2] = (float)B / maxColValue;
+            mBaseMainColor[3] = (float)A / maxColValue;
             mBaseMainColor[4] = mBaseMainColor[3];
             return;
-        case BarColorType::BaseFade:
-            mBaseFadeColor[0] = static_cast<float>(R) / maxColValue;
-            mBaseFadeColor[1] = static_cast<float>(G) / maxColValue;
-            mBaseFadeColor[2] = static_cast<float>(B) / maxColValue;
-            mBaseFadeColor[3] = static_cast<float>(A) / maxColValue;
+        case BASE_FADE:
+            mBaseFadeColor[0] = (float)R / maxColValue;
+            mBaseFadeColor[1] = (float)G / maxColValue;
+            mBaseFadeColor[2] = (float)B / maxColValue;
+            mBaseFadeColor[3] = (float)A / maxColValue;
             mBaseFadeColor[4] = mBaseFadeColor[3];
             return;
-        case BarColorType::AltMain:
-            mAltMainColor[0] = static_cast<float>(R) / maxColValue;
-            mAltMainColor[1] = static_cast<float>(G) / maxColValue;
-            mAltMainColor[2] = static_cast<float>(B) / maxColValue;
-            mAltMainColor[3] = static_cast<float>(A) / maxColValue;
+        case ALT_MAIN:
+            mAltMainColor[0] = (float)R / maxColValue;
+            mAltMainColor[1] = (float)G / maxColValue;
+            mAltMainColor[2] = (float)B / maxColValue;
+            mAltMainColor[3] = (float)A / maxColValue;
             mAltMainColor[4] = mAltMainColor[3];
             return;
-        case BarColorType::AltFade:
-            mAltFadeColor[0] = static_cast<float>(R) / maxColValue;
-            mAltFadeColor[1] = static_cast<float>(G) / maxColValue;
-            mAltFadeColor[2] = static_cast<float>(B) / maxColValue;
-            mAltFadeColor[3] = static_cast<float>(A) / maxColValue;
+        case ALT_FADE:
+            mAltFadeColor[0] = (float)R / maxColValue;
+            mAltFadeColor[1] = (float)G / maxColValue;
+            mAltFadeColor[2] = (float)B / maxColValue;
+            mAltFadeColor[3] = (float)A / maxColValue;
             mAltFadeColor[4] = mAltFadeColor[3];
             return;
-        case BarColorType::BackMain:
-            mBackMainColor[0] = static_cast<float>(R) / maxColValue;
-            mBackMainColor[1] = static_cast<float>(G) / maxColValue;
-            mBackMainColor[2] = static_cast<float>(B) / maxColValue;
-            mBackMainColor[3] = static_cast<float>(A) / maxColValue;
+        case BACK_MAIN:
+            mBackMainColor[0] = (float)R / maxColValue;
+            mBackMainColor[1] = (float)G / maxColValue;
+            mBackMainColor[2] = (float)B / maxColValue;
+            mBackMainColor[3] = (float)A / maxColValue;
             mBackMainColor[4] = mBackMainColor[3];
             return;
-        case BarColorType::BackFade:
-            mBackFadeColor[0] = static_cast<float>(R) / maxColValue;
-            mBackFadeColor[1] = static_cast<float>(G) / maxColValue;
-            mBackFadeColor[2] = static_cast<float>(B) / maxColValue;
-            mBackFadeColor[3] = static_cast<float>(A) / maxColValue;
+        case BACK_FADE:
+            mBackFadeColor[0] = (float)R / maxColValue;
+            mBackFadeColor[1] = (float)G / maxColValue;
+            mBackFadeColor[2] = (float)B / maxColValue;
+            mBackFadeColor[3] = (float)A / maxColValue;
             mBackFadeColor[4] = mBackFadeColor[3];
             return;
-        case BarColorType::BorderMain:
-            mBorderMainColor[0] = static_cast<float>(R) / maxColValue;
-            mBorderMainColor[1] = static_cast<float>(G) / maxColValue;
-            mBorderMainColor[2] = static_cast<float>(B) / maxColValue;
-            mBorderMainColor[3] = static_cast<float>(A) / maxColValue;
+        case BORDER_MAIN:
+            mBorderMainColor[0] = (float)R / maxColValue;
+            mBorderMainColor[1] = (float)G / maxColValue;
+            mBorderMainColor[2] = (float)B / maxColValue;
+            mBorderMainColor[3] = (float)A / maxColValue;
             mBorderMainColor[4] = mBorderMainColor[3];
             return;
-        case BarColorType::BorderFade:
-            mBorderFadeColor[0] = static_cast<float>(R) / maxColValue;
-            mBorderFadeColor[1] = static_cast<float>(G) / maxColValue;
-            mBorderFadeColor[2] = static_cast<float>(B) / maxColValue;
-            mBorderFadeColor[3] = static_cast<float>(A) / maxColValue;
+        case BORDER_FADE:
+            mBorderFadeColor[0] = (float)R / maxColValue;
+            mBorderFadeColor[1] = (float)G / maxColValue;
+            mBorderFadeColor[2] = (float)B / maxColValue;
+            mBorderFadeColor[3] = (float)A / maxColValue;
             mBorderFadeColor[4] = mBorderFadeColor[3];
             return;
         default:
@@ -1591,7 +1296,7 @@ void ProgressBar::SetColor(BarColorType colType,
     }
 }
 
-void ProgressBar::SetPosition(HorizontalAnchor anchor_X, float offset_X, VerticalAnchor anchor_Y, float offset_Y)
+void gui_ProgressBar::SetPosition(int8_t anchor_X, float offset_X, int8_t anchor_Y, float offset_Y)
 {
     mXanchor = anchor_X;
     mYanchor = anchor_Y;
@@ -1602,10 +1307,10 @@ void ProgressBar::SetPosition(HorizontalAnchor anchor_X, float offset_X, Vertica
 }
 
 // Set bar size
-void ProgressBar::SetSize(float width, float height, float borderSize)
+void gui_ProgressBar::SetSize(float width, float height, float borderSize)
 {
     // Absolute values are needed to recalculate actual bar size according to resolution.
-    mAbsWidth = width;
+    mAbsWidth  = width;
     mAbsHeight = height;
     mAbsBorderSize = borderSize;
 
@@ -1613,103 +1318,103 @@ void ProgressBar::SetSize(float width, float height, float borderSize)
 }
 
 // Recalculate size, according to viewport resolution.
-void ProgressBar::RecalculateSize()
+void gui_ProgressBar::RecalculateSize()
 {
-    mWidth = static_cast<float>(mAbsWidth)  * screen_info.scale_factor;
-    mHeight = static_cast<float>(mAbsHeight) * screen_info.scale_factor;
+    mWidth  = (float)mAbsWidth  * screen_info.scale_factor;
+    mHeight = (float)mAbsHeight * screen_info.scale_factor;
 
-    mBorderWidth = static_cast<float>(mAbsBorderSize)  * screen_info.scale_factor;
-    mBorderHeight = static_cast<float>(mAbsBorderSize)  * screen_info.scale_factor;
+    mBorderWidth  = (float)mAbsBorderSize  * screen_info.scale_factor;
+    mBorderHeight = (float)mAbsBorderSize  * screen_info.scale_factor;
 
     // Calculate range unit, according to maximum bar value set up.
     // If bar alignment is set to horizontal, calculate it from bar width.
     // If bar is vertical, then calculate it from height.
 
-    mRangeUnit = (!Vertical) ? ((mWidth) / mMaxValue) : ((mHeight) / mMaxValue);
+    mRangeUnit = (!Vertical)?( (mWidth) / mMaxValue ):( (mHeight) / mMaxValue );
 }
 
 // Recalculate position, according to viewport resolution.
-void ProgressBar::RecalculatePosition()
+void gui_ProgressBar::RecalculatePosition()
 {
     switch(mXanchor)
     {
-        case HorizontalAnchor::Left:
-            mX = static_cast<float>(mAbsXoffset + mAbsBorderSize) * screen_info.scale_factor;
+        case GUI_ANCHOR_HOR_LEFT:
+            mX = (float)(mAbsXoffset+mAbsBorderSize) * screen_info.scale_factor;
             break;
-        case HorizontalAnchor::Center:
-            mX = (static_cast<float>(screen_info.w) - (static_cast<float>(mAbsWidth + mAbsBorderSize * 2) * screen_info.scale_factor)) / 2 +
-                (static_cast<float>(mAbsXoffset) * screen_info.scale_factor);
+        case GUI_ANCHOR_HOR_CENTER:
+            mX = ((float)screen_info.w - ((float)(mAbsWidth+mAbsBorderSize*2) * screen_info.scale_factor)) / 2 +
+                 ((float)mAbsXoffset * screen_info.scale_factor);
             break;
-        case HorizontalAnchor::Right:
-            mX = static_cast<float>(screen_info.w) - static_cast<float>(mAbsXoffset + mAbsWidth + mAbsBorderSize * 2) * screen_info.scale_factor;
+        case GUI_ANCHOR_HOR_RIGHT:
+            mX = (float)screen_info.w - ((float)(mAbsXoffset+mAbsWidth+mAbsBorderSize*2)) * screen_info.scale_factor;
             break;
     }
 
     switch(mYanchor)
     {
-        case VerticalAnchor::Top:
-            mY = static_cast<float>(screen_info.h) - static_cast<float>(mAbsYoffset + mAbsHeight + mAbsBorderSize * 2) * screen_info.scale_factor;
+        case GUI_ANCHOR_VERT_TOP:
+            mY = (float)screen_info.h - ((float)(mAbsYoffset+mAbsHeight+mAbsBorderSize*2)) * screen_info.scale_factor;
             break;
-        case VerticalAnchor::Center:
-            mY = (static_cast<float>(screen_info.h) - (static_cast<float>(mAbsHeight + mAbsBorderSize * 2) * screen_info.h_unit)) / 2 +
-                (static_cast<float>(mAbsYoffset) * screen_info.scale_factor);
+        case GUI_ANCHOR_VERT_CENTER:
+            mY = ((float)screen_info.h - ((float)(mAbsHeight+mAbsBorderSize*2) * screen_info.h_unit)) / 2 +
+                 ((float)mAbsYoffset * screen_info.scale_factor);
             break;
-        case VerticalAnchor::Bottom:
+        case GUI_ANCHOR_VERT_BOTTOM:
             mY = (mAbsYoffset + mAbsBorderSize) * screen_info.scale_factor;
             break;
     }
 }
 
 // Set maximum and warning state values.
-void ProgressBar::SetValues(float maxValue, float warnValue)
+void gui_ProgressBar::SetValues(float maxValue, float warnValue)
 {
-    mMaxValue = maxValue;
+    mMaxValue  = maxValue;
     mWarnValue = warnValue;
 
     RecalculateSize();  // We need to recalculate size, because max. value is changed.
 }
 
 // Set warning state blinking interval.
-void ProgressBar::SetBlink(int interval)
+void gui_ProgressBar::SetBlink(int interval)
 {
-    mBlinkInterval = static_cast<float>(interval) / 1000;
-    mBlinkCnt = static_cast<float>(interval) / 1000;  // Also reset blink counter.
+    mBlinkInterval = (float)interval / 1000.0f;
+    mBlinkCnt      = (float)interval / 1000.0f;  // Also reset blink counter.
 }
 
 // Set extrude overlay effect parameters.
-void ProgressBar::SetExtrude(bool enabled, uint8_t depth)
+void gui_ProgressBar::SetExtrude(bool enabled, uint8_t depth)
 {
     mExtrude = enabled;
     memset(mExtrudeDepth, 0, sizeof(float) * 5);    // Set all colors to 0.
-    mExtrudeDepth[3] = static_cast<float>(depth) / 255.0;        // We need only alpha transparency.
+    mExtrudeDepth[3] = (float)depth / 255.0f;       // We need only alpha transparency.
     mExtrudeDepth[4] = mExtrudeDepth[3];
 }
 
 // Set autoshow and fade parameters.
 // Please note that fade parameters are actually independent of autoshow.
-void ProgressBar::SetAutoshow(bool enabled, int delay, bool fade, int fadeDelay)
+void gui_ProgressBar::SetAutoshow(bool enabled, int delay, bool fade, int fadeDelay)
 {
     mAutoShow = enabled;
 
-    mAutoShowDelay = static_cast<float>(delay) / 1000;
-    mAutoShowCnt = static_cast<float>(delay) / 1000;     // Also reset autoshow counter.
+    mAutoShowDelay = (float)delay / 1000.0f;
+    mAutoShowCnt   = (float)delay / 1000.0f;     // Also reset autoshow counter.
 
     mAutoShowFade = fade;
-    mAutoShowFadeDelay = 1000 / static_cast<float>(fadeDelay);
+    mAutoShowFadeDelay = 1000 / (float)fadeDelay;
     mAutoShowFadeCnt = 0; // Initially, it's 0.
 }
 
 // Main bar show procedure.
 // Draws a bar with a given value. Please note that it also accepts float,
 // so effectively you can create bars for floating-point parameters.
-void ProgressBar::Show(float value)
+void gui_ProgressBar::Show(float value)
 {
     // Initial value limiters (to prevent bar overflow).
-    value = (value >= 0) ? (value) : (0);
-    value = (value > mMaxValue) ? (mMaxValue) : (value);
+    value  = (value >= 0.0f)?(value):(0.0f);
+    value  = (value > mMaxValue)?(mMaxValue):(value);
 
     // Enable blink mode, if value is gone below warning value.
-    mBlink = (value <= mWarnValue) ? (true) : (false);
+    mBlink = (value <= mWarnValue)?(true):(false);
 
     if(mAutoShow)   // Check autoshow visibility conditions.
     {
@@ -1719,7 +1424,7 @@ void ProgressBar::Show(float value)
         if(Forced)
         {
             Visible = true;
-            Forced = false;
+            Forced  = false;
         }
         else
         {
@@ -1742,18 +1447,19 @@ void ProgressBar::Show(float value)
 
         // 3. If autoshow time is up, then we hide bar,
         //    otherwise decrease delay counter.
-        if(mAutoShowCnt > 0)
+        if(mAutoShowCnt > 0.0f)
         {
             Visible = true;
             mAutoShowCnt -= engine_frame_time;
 
-            if(mAutoShowCnt <= 0)
+            if(mAutoShowCnt <= 0.0f)
             {
-                mAutoShowCnt = 0;
+                mAutoShowCnt = 0.0f;
                 Visible = false;
             }
         }
     } // end if(AutoShow)
+
 
     if(mAutoShowFade)   // Process fade-in and fade-out effect, if enabled.
     {
@@ -1785,15 +1491,16 @@ void ProgressBar::Show(float value)
         } // end if(!Visible)
 
         // Multiply all layers' alpha by current fade counter.
-        mBaseMainColor[3] = mBaseMainColor[4] * mAutoShowFadeCnt;
-        mBaseFadeColor[3] = mBaseFadeColor[4] * mAutoShowFadeCnt;
-        mAltMainColor[3] = mAltMainColor[4] * mAutoShowFadeCnt;
-        mAltFadeColor[3] = mAltFadeColor[4] * mAutoShowFadeCnt;
-        mBackMainColor[3] = mBackMainColor[4] * mAutoShowFadeCnt;
-        mBackFadeColor[3] = mBackFadeColor[4] * mAutoShowFadeCnt;
+        mBaseMainColor[3]   = mBaseMainColor[4]   * mAutoShowFadeCnt;
+        mBaseFadeColor[3]   = mBaseFadeColor[4]   * mAutoShowFadeCnt;
+        mAltMainColor[3]    = mAltMainColor[4]    * mAutoShowFadeCnt;
+        mAltFadeColor[3]    = mAltFadeColor[4]    * mAutoShowFadeCnt;
+        mBackMainColor[3]   = mBackMainColor[4]   * mAutoShowFadeCnt;
+        mBackFadeColor[3]   = mBackFadeColor[4]   * mAutoShowFadeCnt;
         mBorderMainColor[3] = mBorderMainColor[4] * mAutoShowFadeCnt;
         mBorderFadeColor[3] = mBorderFadeColor[4] * mAutoShowFadeCnt;
-        mExtrudeDepth[3] = mExtrudeDepth[4] * mAutoShowFadeCnt;
+        mExtrudeDepth[3]    = mExtrudeDepth[4]    * mAutoShowFadeCnt;
+
     }
     else
     {
@@ -1807,7 +1514,7 @@ void ProgressBar::Show(float value)
     Gui_DrawRect(mX, mY, mWidth + (mBorderWidth * 2), mHeight + (mBorderHeight * 2),
                  mBorderMainColor, mBorderMainColor,
                  mBorderFadeColor, mBorderFadeColor,
-                 loader::BlendingMode::Opaque);
+                 BM_OPAQUE);
 
     // SECTION FOR BASE BAR RECTANGLE.
 
@@ -1821,7 +1528,7 @@ void ProgressBar::Show(float value)
         }
         else if(mBlinkCnt <= 0)
         {
-            mBlinkCnt = mBlinkInterval * 2;
+            mBlinkCnt = mBlinkInterval * 2.0f;
         }
     }
 
@@ -1829,16 +1536,16 @@ void ProgressBar::Show(float value)
     // It is needed in case bar is used as a simple UI box to bypass unnecessary calculations.
     if(!value)
     {
-        // Draw full-sized background rect (instead of base bar rect)
-        Gui_DrawRect(mX + mBorderWidth, mY + mBorderHeight, mWidth, mHeight,
-                     mBackMainColor, (Vertical) ? (mBackFadeColor) : (mBackMainColor),
-                     (Vertical) ? (mBackMainColor) : (mBackFadeColor), mBackFadeColor,
-                     loader::BlendingMode::Opaque);
-        return;
+          // Draw full-sized background rect (instead of base bar rect)
+          Gui_DrawRect(mX + mBorderWidth, mY + mBorderHeight, mWidth, mHeight,
+                       mBackMainColor, (Vertical)?(mBackFadeColor):(mBackMainColor),
+                       (Vertical)?(mBackMainColor):(mBackFadeColor), mBackFadeColor,
+                       BM_OPAQUE);
+          return;
     }
 
     // Calculate base bar width, according to current value and range unit.
-    mBaseSize = mRangeUnit * value;
+    mBaseSize  = mRangeUnit * value;
     mBaseRatio = value / mMaxValue;
 
     float RectAnchor;           // Anchor to stick base bar rect, according to Invert flag.
@@ -1850,99 +1557,97 @@ void ProgressBar::Show(float value)
     if(Invert)
     {
         memcpy(RectFirstColor,
-               (Alternate) ? (mAltMainColor) : (mBaseMainColor),
+               (Alternate)?(mAltMainColor):(mBaseMainColor),
                sizeof(float) * 4);
 
         // Main-fade gradient is recalculated according to current / maximum value ratio.
         for(int i = 0; i <= 3; i++)
-            RectSecondColor[i] = (Alternate) ? ((mBaseRatio * mAltFadeColor[i]) + ((1 - mBaseRatio) * mAltMainColor[i]))
-            : ((mBaseRatio * mBaseFadeColor[i]) + ((1 - mBaseRatio) * mBaseMainColor[i]));
+            RectSecondColor[i] = (Alternate)?((mBaseRatio * mAltFadeColor[i])  + ((1 - mBaseRatio) * mAltMainColor[i]))
+                                            :((mBaseRatio * mBaseFadeColor[i]) + ((1 - mBaseRatio) * mBaseMainColor[i]));
+
     }
     else
     {
         memcpy(RectSecondColor,
-               (Alternate) ? (mAltMainColor) : (mBaseMainColor),
+               (Alternate)?(mAltMainColor):(mBaseMainColor),
                sizeof(float) * 4);
 
         // Main-fade gradient is recalculated according to current / maximum value ratio.
         for(int i = 0; i <= 3; i++)
-            RectFirstColor[i] = (Alternate) ? ((mBaseRatio * mAltFadeColor[i]) + ((1 - mBaseRatio) * mAltMainColor[i]))
-            : ((mBaseRatio * mBaseFadeColor[i]) + ((1 - mBaseRatio) * mBaseMainColor[i]));
+            RectFirstColor[i] = (Alternate)?((mBaseRatio * mAltFadeColor[i])  + ((1 - mBaseRatio) * mAltMainColor[i]))
+                                           :((mBaseRatio * mBaseFadeColor[i]) + ((1 - mBaseRatio) * mBaseMainColor[i]));
+
     } // end if(Invert)
-
-    // We need to reset Alternate flag each frame, cause behaviour is immediate.
-
-    Alternate = false;
 
     // If vertical style flag is set, we draw bar base top-bottom, else we draw it left-right.
     if(Vertical)
     {
-        RectAnchor = ((Invert) ? (mY + mHeight - mBaseSize) : (mY)) + mBorderHeight;
+        RectAnchor = ( (Invert)?(mY + mHeight - mBaseSize):(mY) ) + mBorderHeight;
 
         // Draw actual bar base.
         Gui_DrawRect(mX + mBorderWidth, RectAnchor,
                      mWidth, mBaseSize,
-                     RectFirstColor, RectFirstColor,
+                     RectFirstColor,  RectFirstColor,
                      RectSecondColor, RectSecondColor,
-                     loader::BlendingMode::Opaque);
+                     BM_OPAQUE);
 
         // Draw background rect.
         Gui_DrawRect(mX + mBorderWidth,
-                     (Invert) ? (mY + mBorderHeight) : (RectAnchor + mBaseSize),
+                     (Invert)?(mY + mBorderHeight):(RectAnchor + mBaseSize),
                      mWidth, mHeight - mBaseSize,
                      mBackMainColor, mBackFadeColor,
                      mBackMainColor, mBackFadeColor,
-                     loader::BlendingMode::Opaque);
+                     BM_OPAQUE);
 
         if(mExtrude)    // Draw extrude overlay, if flag is set.
         {
-            float transparentColor[4] = { 0 };  // Used to set counter-shade to transparent.
+            float transparentColor[4] = {0};  // Used to set counter-shade to transparent.
 
             Gui_DrawRect(mX + mBorderWidth, RectAnchor,
                          mWidth / 2, mBaseSize,
                          mExtrudeDepth, transparentColor,
                          mExtrudeDepth, transparentColor,
-                         loader::BlendingMode::Opaque);
+                         BM_OPAQUE);
             Gui_DrawRect(mX + mBorderWidth + mWidth / 2, RectAnchor,
                          mWidth / 2, mBaseSize,
                          transparentColor, mExtrudeDepth,
                          transparentColor, mExtrudeDepth,
-                         loader::BlendingMode::Opaque);
+                         BM_OPAQUE);
         }
     }
     else
     {
-        RectAnchor = ((Invert) ? (mX + mWidth - mBaseSize) : (mX)) + mBorderWidth;
+        RectAnchor = ( (Invert)?(mX + mWidth - mBaseSize):(mX) ) + mBorderWidth;
 
         // Draw actual bar base.
         Gui_DrawRect(RectAnchor, mY + mBorderHeight,
                      mBaseSize, mHeight,
                      RectSecondColor, RectFirstColor,
                      RectSecondColor, RectFirstColor,
-                     loader::BlendingMode::Opaque);
+                     BM_OPAQUE);
 
         // Draw background rect.
-        Gui_DrawRect((Invert) ? (mX + mBorderWidth) : (RectAnchor + mBaseSize),
+        Gui_DrawRect((Invert)?(mX + mBorderWidth):(RectAnchor + mBaseSize),
                      mY + mBorderHeight,
                      mWidth - mBaseSize, mHeight,
                      mBackMainColor, mBackMainColor,
                      mBackFadeColor, mBackFadeColor,
-                     loader::BlendingMode::Opaque);
+                     BM_OPAQUE);
 
         if(mExtrude)    // Draw extrude overlay, if flag is set.
         {
-            float transparentColor[4] = { 0 };  // Used to set counter-shade to transparent.
+            float transparentColor[4] = {0};  // Used to set counter-shade to transparent.
 
             Gui_DrawRect(RectAnchor, mY + mBorderHeight,
                          mBaseSize, mHeight / 2,
                          transparentColor, transparentColor,
                          mExtrudeDepth, mExtrudeDepth,
-                         loader::BlendingMode::Opaque);
+                         BM_OPAQUE);
             Gui_DrawRect(RectAnchor, mY + mBorderHeight + (mHeight / 2),
                          mBaseSize, mHeight / 2,
                          mExtrudeDepth, mExtrudeDepth,
                          transparentColor, transparentColor,
-                         loader::BlendingMode::Opaque);
+                         BM_OPAQUE);
         }
     } // end if(Vertical)
 }
@@ -1954,11 +1659,11 @@ void ProgressBar::Show(float value)
 gui_ItemNotifier::gui_ItemNotifier()
 {
     SetPos(850, 850);
-    SetRot(0, 0);
+    SetRot(0,0);
     SetSize(1.0);
     SetRotateTime(1000.0);
 
-    mItem = 0;
+    mItem   = 0;
     mActive = false;
 }
 
@@ -1966,9 +1671,9 @@ void gui_ItemNotifier::Start(int item, float time)
 {
     Reset();
 
-    mItem = item;
+    mItem     = item;
     mShowTime = time;
-    mActive = true;
+    mActive   = true;
 }
 
 void gui_ItemNotifier::Animate()
@@ -1984,17 +1689,19 @@ void gui_ItemNotifier::Animate()
             mCurrRotX += (engine_frame_time * mRotateTime);
             //mCurrRotY += (engine_frame_time * mRotateTime);
 
-            mCurrRotX = (mCurrRotX > 360.0) ? (mCurrRotX - 360.0) : (mCurrRotX);
+            mCurrRotX = (mCurrRotX > 360.0)?(mCurrRotX - 360.0):(mCurrRotX);
             //mCurrRotY = (mCurrRotY > 360.0)?(mCurrRotY - 360.0):(mCurrRotY);
         }
 
+        float step = 0;
+
         if(mCurrTime == 0)
         {
-            float step = (mCurrPosX - mEndPosX) * (engine_frame_time * 4.0);
-            step = (step <= 0.5) ? (0.5) : (step);
+            step = (mCurrPosX - mEndPosX) * (engine_frame_time * 4.0);
+            step = (step <= 0.5)?(0.5):(step);
 
             mCurrPosX -= step;
-            mCurrPosX = (mCurrPosX < mEndPosX) ? (mEndPosX) : (mCurrPosX);
+            mCurrPosX  = (mCurrPosX < mEndPosX)?(mEndPosX):(mCurrPosX);
 
             if(mCurrPosX == mEndPosX)
                 mCurrTime += engine_frame_time;
@@ -2005,11 +1712,11 @@ void gui_ItemNotifier::Animate()
         }
         else
         {
-            float step = (mCurrPosX - mEndPosX) * (engine_frame_time * 4.0);
-            step = (step <= 0.5) ? (0.5) : (step);
+            step = (mCurrPosX - mEndPosX) * (engine_frame_time * 4.0);
+            step = (step <= 0.5)?(0.5):(step);
 
             mCurrPosX += step;
-            mCurrPosX = (mCurrPosX > mStartPosX) ? (mStartPosX) : (mCurrPosX);
+            mCurrPosX  = (mCurrPosX > mStartPosX)?(mStartPosX):(mCurrPosX);
 
             if(mCurrPosX == mStartPosX)
                 Reset();
@@ -2024,46 +1731,50 @@ void gui_ItemNotifier::Reset()
     mCurrRotX = 0.0;
     mCurrRotY = 0.0;
 
-    mEndPosX = (static_cast<float>(screen_info.w) / ScreenMeteringResolution) * mAbsPosX;
-    mPosY = (static_cast<float>(screen_info.h) / ScreenMeteringResolution) * mAbsPosY;
-    mCurrPosX = screen_info.w + (static_cast<float>(screen_info.w) / GUI_NOTIFIER_OFFSCREEN_DIVIDER * mSize);
+    mEndPosX = ((float)screen_info.w / SYS_SCREEN_METERING_RESOLUTION) * mAbsPosX;
+    mPosY    = ((float)screen_info.h / SYS_SCREEN_METERING_RESOLUTION) * mAbsPosY;
+    mCurrPosX = screen_info.w + ((float)screen_info.w / GUI_NOTIFIER_OFFSCREEN_DIVIDER * mSize);
     mStartPosX = mCurrPosX;    // Equalize current and start positions.
 }
 
 void gui_ItemNotifier::Draw()
 {
-    if(!mActive)
-        return;
+    if(mActive)
+    {
+        base_item_p item = World_GetBaseItemByID(mItem);
+        if(item)
+        {
+            int anim = item->bf->animations.current_animation;
+            int frame = item->bf->animations.current_frame;
+            float time = item->bf->animations.frame_time;
 
-    auto item = engine_world.getBaseItemByID(mItem);
-    if(!item)
-        return;
+            item->bf->animations.current_animation = 0;
+            item->bf->animations.current_frame = 0;
+            item->bf->animations.frame_time = 0.0;
 
-    int anim = item->bf->animations.current_animation;
-    int frame = item->bf->animations.current_frame;
-    btScalar time = item->bf->animations.frame_time;
+            Item_Frame(item->bf, 0.0);
+            float matrix[16];
+            Mat4_E_macro(matrix);
+            matrix[12 + 0] = mCurrPosX;
+            matrix[12 + 1] = mPosY;
+            matrix[12 + 2] = -2048.0;
+            float ang = (mCurrRotX + mRotX) * M_PI / 180.0f;
+            Mat4_RotateY_SinCos(matrix, sinf(ang), cosf(ang));
+            ang = (mCurrRotY + mRotY) * M_PI / 180.0f;
+            Mat4_RotateX_SinCos(matrix, sinf(ang), cosf(ang));
+            Gui_RenderItem(item->bf, mSize, matrix);
 
-    item->bf->animations.current_animation = 0;
-    item->bf->animations.current_frame = 0;
-    item->bf->animations.frame_time = 0.0;
-
-    Item_Frame(item->bf.get(), 0.0);
-    btTransform matrix;
-    matrix.setIdentity();
-    Mat4_Translate(matrix, mCurrPosX, mPosY, -2048.0);
-    Mat4_RotateY(matrix, mCurrRotX + mRotX);
-    Mat4_RotateX(matrix, mCurrRotY + mRotY);
-    Gui_RenderItem(item->bf.get(), mSize, matrix);
-
-    item->bf->animations.current_animation = anim;
-    item->bf->animations.current_frame = frame;
-    item->bf->animations.frame_time = time;
+            item->bf->animations.current_animation = anim;
+            item->bf->animations.current_frame = frame;
+            item->bf->animations.frame_time = time;
+        }
+    }
 }
 
 void gui_ItemNotifier::SetPos(float X, float Y)
 {
     mAbsPosX = X;
-    mAbsPosY = 1000.0f - Y;
+    mAbsPosY = 1000.0 - Y;
 }
 
 void gui_ItemNotifier::SetRot(float X, float Y)
@@ -2079,219 +1790,5 @@ void gui_ItemNotifier::SetSize(float size)
 
 void gui_ItemNotifier::SetRotateTime(float time)
 {
-    mRotateTime = (1000.0f / time) * 360.0f;
-}
-
-// ===================================================================================
-// ======================== FONT MANAGER  CLASS IMPLEMENTATION =======================
-// ===================================================================================
-
-FontManager::FontManager()
-{
-    this->font_library = nullptr;
-    FT_Init_FreeType(&this->font_library);
-
-    this->mFadeValue = 0.0;
-    this->mFadeDirection = true;
-}
-
-FontManager::~FontManager()
-{
-    // must be freed before releasing the library
-    styles.clear();
-    fonts.clear();
-    FT_Done_FreeType(this->font_library);
-    this->font_library = nullptr;
-}
-
-FontTexture *FontManager::GetFont(const FontType index)
-{
-    for(const Font& current_font : this->fonts)
-    {
-        if(current_font.index == index)
-        {
-            return current_font.gl_font.get();
-        }
-    }
-
-    return nullptr;
-}
-
-Font *FontManager::GetFontAddress(const FontType index)
-{
-    for(Font& current_font : this->fonts)
-    {
-        if(current_font.index == index)
-        {
-            return &current_font;
-        }
-    }
-
-    return nullptr;
-}
-
-FontStyleData *FontManager::GetFontStyle(const FontStyle index)
-{
-    for(FontStyleData& current_style : this->styles)
-    {
-        if(current_style.index == index)
-        {
-            return &current_style;
-        }
-    }
-
-    return nullptr;
-}
-
-bool FontManager::AddFont(const FontType index, const uint32_t size, const char* path)
-{
-    if((size < MinFontSize) || (size > MaxFontSize))
-    {
-        return false;
-    }
-
-    Font* desired_font = GetFontAddress(index);
-
-    if(desired_font == nullptr)
-    {
-        if(this->fonts.size() >= MaxFonts)
-        {
-            return false;
-        }
-
-        this->fonts.emplace_front();
-        desired_font = &this->fonts.front();
-        desired_font->size = static_cast<uint16_t>(size);
-        desired_font->index = index;
-    }
-
-    desired_font->gl_font = glf_create_font(this->font_library, path, size);
-
-    return true;
-}
-
-bool FontManager::AddFontStyle(const FontStyle index,
-                                   const GLfloat R, const GLfloat G, const GLfloat B, const GLfloat A,
-                                   const bool shadow, const bool fading,
-                                   const bool rect, const GLfloat rect_border,
-                                   const GLfloat rect_R, const GLfloat rect_G, const GLfloat rect_B, const GLfloat rect_A,
-                                   const bool hide)
-{
-    FontStyleData* desired_style = GetFontStyle(index);
-
-    if(desired_style == nullptr)
-    {
-        if(this->styles.size() >= static_cast<int>(FontStyle::Sentinel))
-        {
-            return false;
-        }
-
-        this->styles.emplace_front();
-        desired_style = &this->styles.front();
-        desired_style->index = index;
-    }
-
-    desired_style->rect_border = rect_border;
-    desired_style->rect_color[0] = rect_R;
-    desired_style->rect_color[1] = rect_G;
-    desired_style->rect_color[2] = rect_B;
-    desired_style->rect_color[3] = rect_A;
-
-    desired_style->color[0] = R;
-    desired_style->color[1] = G;
-    desired_style->color[2] = B;
-    desired_style->color[3] = A;
-
-    memcpy(desired_style->real_color, desired_style->color, sizeof(GLfloat) * 4);
-
-    desired_style->fading = fading;
-    desired_style->shadowed = shadow;
-    desired_style->rect = rect;
-    desired_style->hidden = hide;
-
-    return true;
-}
-
-bool FontManager::RemoveFont(const FontType index)
-{
-    if(this->fonts.empty())
-    {
-        return false;
-    }
-
-    for(auto it = this->fonts.begin(); it != this->fonts.end(); ++it)
-    {
-        if(it->index == index)
-        {
-            this->fonts.erase(it);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool FontManager::RemoveFontStyle(const FontStyle index)
-{
-    if(this->styles.empty())
-    {
-        return false;
-    }
-
-    for(auto it = this->styles.begin(); it != this->styles.end(); ++it)
-    {
-        if(it->index == index)
-        {
-            this->styles.erase(it);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void FontManager::Update()
-{
-    if(this->mFadeDirection)
-    {
-        this->mFadeValue += engine_frame_time * FontFadeSpeed;
-
-        if(this->mFadeValue >= 1.0)
-        {
-            this->mFadeValue = 1.0;
-            this->mFadeDirection = false;
-        }
-    }
-    else
-    {
-        this->mFadeValue -= engine_frame_time * FontFadeSpeed;
-
-        if(this->mFadeValue <= FontFadeMin)
-        {
-            this->mFadeValue = FontFadeMin;
-            this->mFadeDirection = true;
-        }
-    }
-
-    for(FontStyleData& current_style : this->styles)
-    {
-        if(current_style.fading)
-        {
-            current_style.real_color[0] = current_style.color[0] * this->mFadeValue;
-            current_style.real_color[1] = current_style.color[1] * this->mFadeValue;
-            current_style.real_color[2] = current_style.color[2] * this->mFadeValue;
-        }
-        else
-        {
-            std::copy_n( current_style.color, 3, current_style.real_color );
-        }
-    }
-}
-
-void FontManager::Resize()
-{
-    for(Font& current_font : this->fonts)
-    {
-        glf_resize(current_font.gl_font.get(), static_cast<uint16_t>(static_cast<float>(current_font.size) * screen_info.scale_factor));
-    }
+    mRotateTime = (1000.0 / time) * 360.0;
 }

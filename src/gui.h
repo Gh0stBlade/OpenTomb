@@ -1,392 +1,73 @@
-#pragma once
 
-#include "character_controller.h"
-#include "entity.h"
-#include "gl_font.h"
-#include "render.h"
+#ifndef ENGINE_GUI_H
+#define ENGINE_GUI_H
 
-#include <list>
-
-namespace
-{
-constexpr int MaxTempLines = 256;
-
-// Screen metering resolution specifies user-friendly relative dimensions of screen,
-// which are not dependent on screen resolution. They're primarily used to parse
-// bar and string dimensions.
-
-constexpr float ScreenMeteringResolution = 1000.0f;
-
-constexpr int MaxFonts = 8;     // 8 fonts is PLENTY.
-
-constexpr int MinFontSize = 1;
-constexpr int MaxFontSize = 72;
-
-constexpr float FontFadeSpeed = 1.0f;                 // Global fading style speed.
-constexpr float FontFadeMin   = 0.3f;                 // Minimum fade multiplier.
-
-constexpr float FontShadowTransparency    =  0.7f;
-constexpr float FontShadowVerticalShift   = -0.9f;
-constexpr float FontShadowHorizontalShift =  0.7f;
-
-// Default line size is generally used for static in-game strings. Strings
-// that are created dynamically may have variable string sizes.
-
-constexpr int LineDefaultSize = 128;
-}
+#include <stdint.h>
+#include "core/gl_text.h"
 
 // Anchoring is needed to link specific GUI element to specific screen position,
 // independent of screen resolution and aspect ratio. Vertical and horizontal
 // anchorings are seperated, so you can link element at any place - top, bottom,
 // center, left or right.
-enum class VerticalAnchor
-{
-    Top,
-    Bottom,
-    Center
-};
 
-enum class HorizontalAnchor
-{
-    Left,
-    Right,
-    Center
-};
+#define GUI_ANCHOR_VERT_TOP         0
+#define GUI_ANCHOR_VERT_BOTTOM      1
+#define GUI_ANCHOR_VERT_CENTER      2
 
-// Horizontal alignment is simple side alignment, like in original TRs.
-// It means that X coordinate will be either used for left, right or
-// center orientation.
-enum class LineAlignment
-{
-    Left,
-    Right,
-    Center
-};
-
-enum class FaderDir
-{
-    In,   // Normal fade-in.
-    Out,  // Normal fade-out.
-    Timed // Timed fade: in -> stay -> out.
-};
-
-// Scale type specifies how textures with various aspect ratios will be
-// handled. If scale type is set to ZOOM, texture will be zoomed up to
-// current screen's aspect ratio. If type is LETTERBOX, empty spaces
-// will be filled with bars of fader's color. If type is STRETCH, image
-// will be simply stretched across whole screen.
-// ZOOM type is the best shot for loading screens, while LETTERBOX is
-// needed for pictures with crucial info that shouldn't be cut by zoom,
-// and STRETCH type is usable for full-screen effects, like vignette.
-
-enum class FaderScale
-{
-    Zoom,
-    LetterBox,
-    Stretch
-};
-
-enum class FaderStatus
-{
-    Invalid,
-    Idle,
-    Fading,
-    Complete
-};
-
-enum class FaderCorner
-{
-    None,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight
-};
+#define GUI_ANCHOR_HOR_LEFT         0
+#define GUI_ANCHOR_HOR_RIGHT        1
+#define GUI_ANCHOR_HOR_CENTER       2
 
 
-// OpenTomb has three types of fonts - primary, secondary and console
-// font. This should be enough for most of the cases. However, user
-// can generate and use additional font types via script, but engine
-// behaviour with extra font types is undefined.
+struct inventory_node_s;
 
-enum class FontType
-{
-    Primary,
-    Secondary,
-    Console
-};
 
-// This is predefined enumeration of font styles, which can be extended
-// with user-defined script functions.
-///@TODO: add system message console style
-enum class FontStyle
-{
-    ConsoleInfo,
-    ConsoleWarning,
-    ConsoleEvent,
-    ConsoleNotify,
-    MenuTitle,
-    MenuHeading1,
-    MenuHeading2,
-    MenuItemActive,
-    MenuItemInactive,
-    MenuContent,
-    StatsTitle,
-    StatsContent,
-    Notifier,
-    SavegameList,
-    Generic,
-    Sentinel
-};
-
-// Font struct contains additional field for font type which is
-// used to dynamically create or delete fonts.
-
-struct Font
-{
-    FontType                   index;
-    uint16_t                    size;
-    std::shared_ptr<FontTexture> gl_font;
-};
-
-// Font style is different to font itself - whereas engine can have
-// only three fonts, there could be unlimited amount of font styles.
-// Font style management is done via font manager.
-
-struct FontStyleData
-{
-    FontStyle                  index;          // Unique index which is used to identify style.
-
-    GLfloat                     color[4];
-    GLfloat                     real_color[4];
-    GLfloat                     rect_color[4];
-    GLfloat                     rect_border;
-
-    bool                        shadowed;
-    bool                        rect;
-    bool                        fading;         // TR4-like looped fading font effect.
-    bool                        hidden;         // Used to bypass certain GUI lines easily.
-};
-
-// Font manager is a singleton class which is used to manage all in-game fonts
-// and font styles. Every time you want to change font or style, font manager
-// functions should be used.
-
-class FontManager
-{
-public:
-    FontManager();
-    ~FontManager();
-
-    bool             AddFont(const FontType index,
-                             const uint32_t size,
-                             const char* path);
-    bool             RemoveFont(const FontType index);
-    FontTexture*     GetFont(const FontType index);
-
-    bool             AddFontStyle(const FontStyle index,
-                                  const GLfloat R, const GLfloat G, const GLfloat B, const GLfloat A,
-                                  const bool shadow, const bool fading,
-                                  const bool rect, const GLfloat rect_border,
-                                  const GLfloat rect_R, const GLfloat rect_G, const GLfloat rect_B, const GLfloat rect_A,
-                                  const bool hide);
-    bool             RemoveFontStyle(const FontStyle index);
-    FontStyleData*  GetFontStyle(const FontStyle index);
-
-    uint32_t         GetFontCount()
-    {
-        return fonts.size();
-    }
-    uint32_t         GetFontStyleCount()
-    {
-        return styles.size();
-    }
-
-    void             Update(); // Do fading routine here, etc. Put into Gui_Update, maybe...
-    void             Resize(); // Resize fonts on window resize event.
-
-private:
-    Font*            GetFontAddress(const FontType index);
-
-    GLfloat          mFadeValue; // Multiplier used with font RGB values to animate fade.
-    bool             mFadeDirection;
-
-    std::list<FontStyleData> styles;
-
-    std::list<Font>  fonts;
-
-    FT_Library       font_library;  // GLF font library unit.
-};
-
-struct TextLine
-{
-    std::string                 text;
-
-    FontType                    font_id;
-    FontStyle                   style_id;
-
-    GLfloat                     X;
-    HorizontalAnchor            Xanchor;
-    GLfloat                     absXoffset;
-    GLfloat                     Y;
-    VerticalAnchor              Yanchor;
-    GLfloat                     absYoffset;
-
-    GLfloat                     rect[4];    //x0, yo, x1, y1
-
-    bool                        show;
-
-    TextLine     *next;
-    TextLine     *prev;
-};
-
-struct Rect
-{
-    GLfloat                     rect[4];
-    GLfloat                     absRect[4];
-
-    GLfloat                     X;  GLfloat absX;
-    GLfloat                     Y;  GLfloat absY;
-    int8_t                      align;
-
-    GLuint                      texture;
-    GLfloat                     color[16]; // TL, TR, BL, BR x 4
-    uint32_t                    blending_mode;
-
-    int16_t                     line_count;
-    TextLine            *lines;
-
-    int8_t                      state;      // Opening / static / closing
-    int8_t                      show;
-    GLfloat                     current_alpha;
-
-    int8_t                      focused;
-    int8_t                      focus_index;
-
-    int8_t                      selectable;
-    int8_t                      selection_index;
-
-    char                       *lua_click_function;
-};
-
-// Fader is a simple full-screen rectangle, which always sits above the scene,
-// and, when activated, either shows or hides gradually - hence, creating illusion
-// of fade in and fade out effects.
-// TR1-3 had only one type of fader - black one, which was activated on level
-// transitions. Since TR4, additional colored fader was introduced to emulate
-// various full-screen effects (flashes, flares, and so on).
-// With OpenTomb, we extend fader functionality to support not only simple dip to
-// color effect, but also various advanced parameters - texture, delay and variable
-// fade-in and fade-out speeds.
-
-// Immutable fader enumeration.
-// These faders always exist in engine, and rarely you will need more than these.
-
-enum class FaderType
-{
-    Effect,       // Effect fader (flashes, etc.)
-    Sun,          // Sun fader (engages on looking at the sun)
-    Vignette,     // Just for fun - death fader.
-    LoadScreen,   // Loading screen
-    Black,        // Classic black fader
-    Sentinel
-};
-
-// Main fader class.
-
-class Fader
-{
-public:
-    Fader();                  // Fader constructor.
-
-    void Show();                  // Shows and updates fader.
-    void Engage(FaderDir fade_dir);    // Resets and starts fader.
-    void Cut();                   // Immediately cuts fader.
-
-    FaderStatus IsFading();              // Get current state of the fader.
-
-    void SetScaleMode(FaderScale mode = FaderScale::Zoom);
-    void SetColor(uint8_t R, uint8_t G, uint8_t B, FaderCorner corner = FaderCorner::None);
-    void SetBlendingMode(loader::BlendingMode mode = loader::BlendingMode::Opaque);
-    void SetAlpha(uint8_t alpha = 255);
-    void SetSpeed(uint16_t fade_speed, uint16_t fade_speed_secondary = 200);
-    void SetDelay(uint32_t delay_msec);
-
-    bool SetTexture(const char* texture_path);
-
-private:
-    void SetAspect();
-    bool DropTexture();
-
-    GLfloat         mTopLeftColor[4];       // All colors are defined separately, for
-    GLfloat         mTopRightColor[4];      // further possibility of advanced full
-    GLfloat         mBottomLeftColor[4];    // screen effects with gradients.
-    GLfloat         mBottomRightColor[4];
-
-    loader::BlendingMode mBlendingMode;     // Fader's blending mode.
-
-    GLfloat         mCurrentAlpha;          // Current alpha value.
-    GLfloat         mMaxAlpha;              // Maximum reachable alpha value.
-    GLfloat         mSpeed;                 // Fade speed.
-    GLfloat         mSpeedSecondary;        // Secondary speed - used with TIMED type.
-
-    GLuint          mTexture;               // Texture (optional).
-    uint16_t        mTextureWidth;
-    uint16_t        mTextureHeight;
-    bool            mTextureWide;           // Set, if texture width is greater than height.
-    float           mTextureAspectRatio;    // Pre-calculated aspect ratio.
-    FaderScale      mTextureScaleMode;      // Fader texture's scale mode.
-
-    bool            mActive;                // Specifies if fader active or not.
-    bool            mComplete;              // Specifies if fading is complete or not.
-    FaderDir        mDirection;             // Specifies fade direction.
-
-    float           mCurrentTime;           // Current fader time.
-    float           mMaxTime;               // Maximum delay time.
-};
+#define GUI_MENU_ITEMTYPE_SYSTEM 0
+#define GUI_MENU_ITEMTYPE_SUPPLY 1
+#define GUI_MENU_ITEMTYPE_QUEST  2
 
 // Immutable bars enumeration.
 // These are the bars that are always exist in GUI.
 // Scripted bars could be created and drawn separately later.
 
-enum class BarType
+enum Bars
 {
-    Health,     // TR 1-5
-    Air,        // TR 1-5, alternate state - gas (TR5)
-    Stamina,    // TR 3-5
-    Warmth,     // TR 3 only
-    Loading,
-    Sentinel
+    BAR_HEALTH,     // TR 1-5
+    BAR_AIR,        // TR 1-5, alternate state - gas (TR5)
+    BAR_STAMINA,    // TR 3-5
+    BAR_WARMTH,     // TR 3 only
+    BAR_LOADING,
+    BAR_LASTINDEX
 };
 
 // Bar color types.
 // Each bar part basically has two colours - main and fade.
 
-enum class BarColorType
+enum BarColorType
 {
-    BaseMain,
-    BaseFade,
-    AltMain,
-    AltFade,
-    BackMain,
-    BackFade,
-    BorderMain,
-    BorderFade
+    BASE_MAIN,
+    BASE_FADE,
+    ALT_MAIN,
+    ALT_FADE,
+    BACK_MAIN,
+    BACK_FADE,
+    BORDER_MAIN,
+    BORDER_FADE
 };
 
 // Main bar class.
 
-class ProgressBar
+class gui_ProgressBar
 {
 public:
-    ProgressBar();  // Bar constructor.
+    gui_ProgressBar();  // Bar constructor.
 
     void Show(float value);    // Main show bar procedure.
     void Resize();
 
     void SetColor(BarColorType colType, uint8_t R, uint8_t G, uint8_t B, uint8_t alpha);
     void SetSize(float width, float height, float borderSize);
-    void SetPosition(HorizontalAnchor anchor_X, float offset_X, VerticalAnchor anchor_Y, float offset_Y);
+    void SetPosition(int8_t anchor_X, float offset_X, int8_t anchor_Y, float offset_Y);
     void SetValues(float maxValue, float warnValue);
     void SetBlink(int interval);
     void SetExtrude(bool enabled, uint8_t depth);
@@ -410,8 +91,8 @@ private:
     float         mBorderWidth;         // Real border size (horizontal).
     float         mBorderHeight;        // Real border size (vertical).
 
-    HorizontalAnchor mXanchor;          // Horizontal anchoring: left, right or center.
-    VerticalAnchor   mYanchor;          // Vertical anchoring: top, bottom or center.
+    int8_t        mXanchor;             // Horizontal anchoring: left, right or center.
+    int8_t        mYanchor;             // Vertical anchoring: top, bottom or center.
     float         mAbsXoffset;          // Absolute (resolution-independent) X offset.
     float         mAbsYoffset;          // Absolute Y offset.
     float         mAbsWidth;            // Absolute width.
@@ -427,9 +108,9 @@ private:
     float         mBorderMainColor[5];  // Border main color.
     float         mBorderFadeColor[5];  // Border fade color.
 
-    // int8_t        mBaseBlendingMode;    // Blending modes for all bar parts.
-    // int8_t        mBackBlendingMode;    // Note there is no alt. blending mode, cause
-    // int8_t        mBorderBlendingMode;  // base and alt are actually the same part.
+    int8_t        mBaseBlendingMode;    // Blending modes for all bar parts.
+    int8_t        mBackBlendingMode;    // Note there is no alt. blending mode, cause
+    int8_t        mBorderBlendingMode;  // base and alt are actually the same part.
 
     bool          mExtrude;             // Extrude effect.
     float         mExtrudeDepth[5];     // Extrude effect depth.
@@ -459,12 +140,12 @@ private:
 // width, but if you want to increase or decrease notifier size, you must
 // change this value properly.
 
-#define GUI_NOTIFIER_OFFSCREEN_DIVIDER 8.0f
+#define GUI_NOTIFIER_OFFSCREEN_DIVIDER 8.0
 
 // Notifier show time is a time notifier stays on screen (excluding slide
 // effect). Maybe it's better to move it to script later.
 
-#define GUI_NOTIFIER_SHOWTIME 2.0f
+#define GUI_NOTIFIER_SHOWTIME 2.0
 
 class gui_ItemNotifier
 {
@@ -505,30 +186,99 @@ private:
     float   mRotateTime;
 };
 
-void Gui_InitFontManager();
-
 void Gui_Init();
 void Gui_Destroy();
 
 void Gui_InitBars();
-void Gui_InitFaders();
 void Gui_InitNotifier();
-void Gui_InitTempLines();
-void Gui_FillCrosshairBuffer();
-
-void Gui_AddLine(TextLine* line);
-void Gui_DeleteLine(TextLine* line);
-void Gui_MoveLine(TextLine* line);
-void Gui_RenderStringLine(TextLine* l);
-void Gui_RenderStrings();
-
-//extern gui_InventoryMenu     *main_inventory_menu;
-extern FontManager       *fontManager;
 
 /**
- * Draws text using a FontType::Secondary.
+ * Inventory rendering / manipulation functions
  */
-TextLine* Gui_OutTextXY(GLfloat x, GLfloat y, const char *fmt, ...);
+void Item_Frame(struct ss_bone_frame_s *bf, float time);
+void Gui_RenderItem(struct ss_bone_frame_s *bf, float size, const float *mvMatrix);
+/*
+ * Inventory renderer class
+ */
+class gui_InventoryManager
+{
+public:
+    enum inventoryState
+    {
+        INVENTORY_DISABLED = 0,
+        INVENTORY_IDLE,
+        INVENTORY_OPEN,
+        INVENTORY_CLOSE,
+        INVENTORY_R_LEFT,
+        INVENTORY_R_RIGHT,
+        INVENTORY_UP,
+        INVENTORY_DOWN,
+        INVENTORY_ACTIVATE
+    };
+
+    gui_InventoryManager();
+   ~gui_InventoryManager();
+
+    int getCurrentState()
+    {
+        return mCurrentState;
+    }
+
+    int getNextState()
+    {
+        return mNextState;
+    }
+
+    void send(inventoryState state)
+    {
+        mNextState = state;
+    }
+
+    int getItemsType()
+    {
+        return mCurrentItemsType;
+    }
+
+    int setItemsType(int type);
+    void setInventory(struct inventory_node_s **i);
+    void setTitle(int items_type);
+    void frame(float time);
+    void render();
+
+    gl_text_line_t              mLabel_Title;
+    char                        mLabel_Title_text[GUI_LINE_DEFAULTSIZE];
+    gl_text_line_t              mLabel_ItemName;
+    char                        mLabel_ItemName_text[GUI_LINE_DEFAULTSIZE];
+
+private:
+    struct inventory_node_s   **mInventory;
+    int                         mCurrentState;
+    int                         mNextState;
+    int                         mNextItemsCount;
+
+    int                         mCurrentItemsType;
+    int                         mCurrentItemsCount;
+    int                         mItemsOffset;
+
+    float                       mRingRotatePeriod;
+    float                       mRingTime;
+    float                       mRingAngle;
+    float                       mRingVerticalAngle;
+    float                       mRingAngleStep;
+    float                       mBaseRingRadius;
+    float                       mRingRadius;
+    float                       mVerticalOffset;
+
+    float                       mItemRotatePeriod;
+    float                       mItemTime;
+    float                       mItemAngle;
+
+    int getItemElementsCountByType(int type);
+    void restoreItemAngle(float time);
+};
+
+
+extern gui_InventoryManager  *main_inventory_manager;
 
 /**
  * Helper method to setup OpenGL state for console drawing.
@@ -571,19 +321,8 @@ void Gui_DrawRect(const GLfloat &x, const GLfloat &y,
                   const GLfloat &width, const GLfloat &height,
                   const GLfloat colorUpperLeft[], const GLfloat colorUpperRight[],
                   const GLfloat colorLowerLeft[], const GLfloat colorLowerRight[],
-                  const loader::BlendingMode blendMode,
+                  const int &blendMode,
                   const GLuint texture = 0);
-
-/**
- *  Fader functions.
- */
-bool Gui_FadeStart(FaderType fader, FaderDir fade_direction);
-bool Gui_FadeStop(FaderType fader);
-bool Gui_FadeAssignPic(FaderType fader, const std::string &pic_name);
-FaderStatus Gui_FadeCheck(FaderType fader);
-void Gui_FadeSetup(FaderType fader,
-                   uint8_t alpha, uint8_t R, uint8_t G, uint8_t B, loader::BlendingMode blending_mode,
-                   uint16_t fadein_speed, uint16_t fadeout_speed);
 
 /**
  * Item notifier functions.
@@ -595,9 +334,9 @@ void Gui_NotifierStop();
  * General GUI drawing routines.
  */
 void Gui_DrawCrosshair();
-void Gui_DrawFaders();
 void Gui_DrawBars();
 void Gui_DrawLoadScreen(int value);
+bool Gui_LoadScreenAssignPic(const char* pic_name);
 void Gui_DrawInventory();
 void Gui_DrawNotifier();
 
@@ -605,10 +344,6 @@ void Gui_DrawNotifier();
  * General GUI update routines.
  */
 void Gui_Update();
-void Gui_Resize();  // Called every resize event.
+void Gui_UpdateResize();  // Called every resize event.
 
-/**
- * Inventory rendering / manipulation functions
- */
-void Item_Frame(struct SSBoneFrame *bf, btScalar time);
-void Gui_RenderItem(struct SSBoneFrame *bf, btScalar size, const btTransform &mvMatrix);
+#endif

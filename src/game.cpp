@@ -1,146 +1,141 @@
-#include "game.h"
 
-#include <cstdio>
-#include <cstdlib>
+#include <stdlib.h>
+#include <stdio.h>
 
-#include <btBulletCollisionCommon.h>
-#include <btBulletDynamicsCommon.h>
+extern "C" {
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+}
 
-#include <lua.hpp>
-
-#include "LuaState.h"
-
-#include "vmath.h"
-#include "polygon.h"
+#include "core/system.h"
+#include "core/console.h"
+#include "core/vmath.h"
+#include "core/redblack.h"
+#include "core/polygon.h"
+#include "core/obb.h"
+#include "render/camera.h"
+#include "render/frustum.h"
+#include "render/render.h"
 #include "engine.h"
+#include "physics.h"
 #include "controls.h"
+#include "room.h"
 #include "world.h"
-#include "mesh.h"
+#include "game.h"
+#include "audio.h"
+#include "skeletal_model.h"
 #include "entity.h"
-#include "camera.h"
-#include "render.h"
-#include "system.h"
 #include "script.h"
-#include "console.h"
+#include "trigger.h"
 #include "anim_state_control.h"
 #include "character_controller.h"
 #include "gameflow.h"
 #include "gui.h"
 #include "inventory.h"
+#include "ai.h"
 
-btVector3 cam_angles = { 0.0, 0.0, 0.0 };
+extern lua_State *engine_lua;
 
-extern btScalar time_scale;
-extern script::MainEngine engine_lua;
+void Save_EntityTree(FILE **f, RedBlackNode_p n);
+void Save_Entity(FILE **f, entity_p ent);
 
-void Save_EntityTree(FILE **f, const std::map<uint32_t, std::shared_ptr<Entity> > &map);
-void Save_Entity(FILE **f, std::shared_ptr<Entity> ent);
-
-void lua_mlook(lua::Value mlook)
+int lua_mlook(lua_State * lua)
 {
-    if(!mlook.is<lua::Boolean>())
+    if(lua_gettop(lua) == 0)
     {
         control_states.mouse_look = !control_states.mouse_look;
-        ConsoleInfo::instance().printf("mlook = %d", control_states.mouse_look);
-        return;
+        Con_Printf("mlook = %d", control_states.mouse_look);
+        return 0;
     }
 
-    control_states.mouse_look = mlook;
-    ConsoleInfo::instance().printf("mlook = %d", control_states.mouse_look);
+    control_states.mouse_look = lua_tointeger(lua, 1);
+    Con_Printf("mlook = %d", control_states.mouse_look);
+    return 0;
 }
 
-void lua_freelook(lua::Value free)
+
+int lua_freelook(lua_State * lua)
 {
-    if(!free.is<lua::Boolean>())
+    if(lua_gettop(lua) == 0)
     {
         control_states.free_look = !control_states.free_look;
-        ConsoleInfo::instance().printf("free_look = %d", control_states.free_look);
-        return;
+        Con_Printf("free_look = %d", control_states.free_look);
+        return 0;
     }
 
-    control_states.free_look = free;
-    ConsoleInfo::instance().printf("free_look = %d", control_states.free_look);
+    control_states.free_look = lua_tointeger(lua, 1);
+    Con_Printf("free_look = %d", control_states.free_look);
+    return 0;
 }
 
-void lua_cam_distance(lua::Value distance)
+
+int lua_cam_distance(lua_State * lua)
 {
-    if(!distance.is<lua::Number>())
+    if(lua_gettop(lua) == 0)
     {
-        ConsoleInfo::instance().printf("cam_distance = %.2f", control_states.cam_distance);
-        return;
+        Con_Printf("cam_distance = %.2f", control_states.cam_distance);
+        return 0;
     }
 
-    control_states.cam_distance = distance;
-    ConsoleInfo::instance().printf("cam_distance = %.2f", control_states.cam_distance);
+    control_states.cam_distance = lua_tonumber(lua, 1);
+    Con_Printf("cam_distance = %.2f", control_states.cam_distance);
+    return 0;
 }
 
-void lua_noclip(lua::Value noclip)
+
+int lua_noclip(lua_State * lua)
 {
-    if(!noclip.is<lua::Boolean>())
+    if(lua_gettop(lua) == 0)
     {
         control_states.noclip = !control_states.noclip;
     }
     else
     {
-        control_states.noclip = noclip;
+        control_states.noclip = lua_tointeger(lua, 1);
     }
 
-    ConsoleInfo::instance().printf("noclip = %d", control_states.noclip);
+    Con_Printf("noclip = %d", control_states.noclip);
+    return 0;
 }
 
-void lua_debuginfo(lua::Value show)
+
+int lua_debuginfo(lua_State * lua)
 {
-    if(!show.is<lua::Boolean>())
+    if(lua_gettop(lua) == 0)
     {
-        screen_info.show_debuginfo = !screen_info.show_debuginfo;
+        screen_info.debug_view_state++;
     }
     else
     {
-        screen_info.show_debuginfo = show;
+        screen_info.debug_view_state = lua_tointeger(lua, 1);
     }
-
-    ConsoleInfo::instance().printf("debug info = %d", screen_info.show_debuginfo);
+    return 0;
 }
 
-void lua_timescale(lua::Value scale)
-{
-    if(!scale.is<lua::Number>())
-    {
-        if(time_scale == 1.0)
-        {
-            time_scale = 0.033f;
-        }
-        else
-        {
-            time_scale = 1.0;
-        }
-    }
-    else
-    {
-        time_scale = scale;
-    }
-
-    ConsoleInfo::instance().printf("time_scale = %.3f", time_scale);
-}
 
 void Game_InitGlobals()
 {
     control_states.free_look_speed = 3000.0;
-    control_states.mouse_look = true;
-    control_states.free_look = false;
-    control_states.noclip = false;
+    control_states.mouse_look = 1;
+    control_states.free_look = 0;
+    control_states.noclip = 0;
     control_states.cam_distance = 800.0;
 }
 
-void Game_RegisterLuaFunctions(script::ScriptEngine& state)
+
+void Game_RegisterLuaFunctions(lua_State *lua)
 {
-    state.set("debuginfo", lua_debuginfo);
-    state.set("mlook", lua_mlook);
-    state.set("freelook", lua_freelook);
-    state.set("noclip", lua_noclip);
-    state.set("cam_distance", lua_cam_distance);
-    state.set("timescale", lua_timescale);
+    if(lua != NULL)
+    {
+        lua_register(lua, "debuginfo", lua_debuginfo);
+        lua_register(lua, "mlook", lua_mlook);
+        lua_register(lua, "freelook", lua_freelook);
+        lua_register(lua, "cam_distance", lua_cam_distance);
+        lua_register(lua, "noclip", lua_noclip);
+    }
 }
+
 
 /**
  * Load game state
@@ -151,7 +146,7 @@ int Game_Load(const char* name)
     char *ch, local;
 
     local = 1;
-    for(ch = const_cast<char*>(name); *ch; ch++)
+    for(ch = (char*)name; *ch; ch++)
     {
         if((*ch == '\\') || (*ch == '/'))
         {
@@ -165,127 +160,136 @@ int Game_Load(const char* name)
         char token[512];
         snprintf(token, 512, "save/%s", name);
         f = fopen(token, "rb");
-        if(f == nullptr)
+        if(f == NULL)
         {
             Sys_extWarn("Can not read file \"%s\"", token);
             return 0;
         }
         fclose(f);
-        engine_lua.clearTasks();
-        try
-        {
-            engine_lua.doFile(token);
-        }
-        catch(lua::RuntimeError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-        }
-        catch(lua::LoadError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-        }
+        Script_LuaClearTasks();
+        luaL_dofile(engine_lua, token);
     }
     else
     {
         f = fopen(name, "rb");
-        if(f == nullptr)
+        if(f == NULL)
         {
             Sys_extWarn("Can not read file \"%s\"", name);
             return 0;
         }
         fclose(f);
-        engine_lua.clearTasks();
-        try
-        {
-            engine_lua.doFile(name);
-        }
-        catch(lua::RuntimeError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-        }
-        catch(lua::LoadError& error)
-        {
-            Sys_DebugLog(LUA_LOG_FILENAME, "%s", error.what());
-        }
+        Script_LuaClearTasks();
+        luaL_dofile(engine_lua, name);
     }
 
     return 1;
 }
 
-void Save_EntityTree(FILE **f, const std::map<uint32_t, std::shared_ptr<Entity> >& map)
+
+void Save_EntityTree(FILE **f, RedBlackNode_p n)
 {
-    for(std::map<uint32_t, std::shared_ptr<Entity> >::const_iterator it = map.begin();
-    it != map.end();
-        ++it)
+    if(n->left != NULL)
     {
-        Save_Entity(f, it->second);
+        Save_EntityTree(f, n->left);
+    }
+    Save_Entity(f, (entity_p)n->data);
+    if(n->right != NULL)
+    {
+        Save_EntityTree(f, n->right);
     }
 }
 
 /**
  * Entity save function, based on engine lua scripts;
  */
-void Save_Entity(FILE **f, std::shared_ptr<Entity> ent)
+void Save_Entity(FILE **f, entity_p ent)
 {
-    if(ent == nullptr)
+    if(ent == NULL)
     {
         return;
     }
 
-    if(ent->m_typeFlags & ENTITY_TYPE_SPAWNED)
+    if(ent->type_flags & ENTITY_TYPE_SPAWNED)
     {
-        uint32_t room_id = (ent->m_self->room) ? (ent->m_self->room->id) : (0xFFFFFFFF);
-        fprintf(*f, "\nspawnEntity(%d, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, %d);", ent->m_bf.animations.model->id,
-                ent->m_transform.getOrigin()[0], ent->m_transform.getOrigin()[1], ent->m_transform.getOrigin()[2],
-                ent->m_angles[0], ent->m_angles[1], ent->m_angles[2], room_id, ent->id());
+        uint32_t room_id = (ent->self->room)?(ent->self->room->id):(0xFFFFFFFF);
+        fprintf(*f, "\nspawnEntity(%d, 0x%X, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d);", ent->bf->animations.model->id, room_id,
+                ent->transform[12+0], ent->transform[12+1], ent->transform[12+2],
+                ent->angles[0], ent->angles[1], ent->angles[2], ent->id);
     }
     else
     {
-        fprintf(*f, "\nsetEntityPos(%d, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f);", ent->id(),
-                ent->m_transform.getOrigin()[0], ent->m_transform.getOrigin()[1], ent->m_transform.getOrigin()[2],
-                ent->m_angles[0], ent->m_angles[1], ent->m_angles[2]);
+        fprintf(*f, "\nsetEntityPos(%d, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f);", ent->id,
+                ent->transform[12+0], ent->transform[12+1], ent->transform[12+2],
+                ent->angles[0], ent->angles[1], ent->angles[2]);
     }
 
-    fprintf(*f, "\nsetEntitySpeed(%d, %.2f, %.2f, %.2f);", ent->id(), ent->m_speed[0], ent->m_speed[1], ent->m_speed[2]);
-    fprintf(*f, "\nsetEntityAnim(%d, %d, %d);", ent->id(), ent->m_bf.animations.current_animation, ent->m_bf.animations.current_frame);
-    fprintf(*f, "\nsetEntityState(%d, %d, %d);", ent->id(), ent->m_bf.animations.next_state, ent->m_bf.animations.last_state);
-    fprintf(*f, "\nsetEntityCollisionFlags(%d, %ld, %ld);", ent->id(), static_cast<long>(ent->m_self->collision_type), static_cast<long>(ent->m_self->collision_shape));
-
-    if(ent->m_enabled)
+    if(ent->character)
     {
-        fprintf(*f, "\nenableEntity(%d);", ent->id());
-    }
-    else
-    {
-        fprintf(*f, "\ndisableEntity(%d);", ent->id());
-    }
-
-    fprintf(*f, "\nsetEntityFlags(%d, %d, %d, %d, 0x%.4X, 0x%.8X);", ent->id(), ent->m_active, ent->m_enabled, ent->m_visible, ent->m_typeFlags, ent->m_callbackFlags);
-
-    fprintf(*f, "\nsetEntityTriggerLayout(%d, 0x%.2X);", ent->id(), ent->m_triggerLayout);
-    //setEntityMeshswap()
-
-    if(ent->m_self->room != nullptr)
-    {
-        fprintf(*f, "\nsetEntityRoomMove(%d, %d, %d, %d);", ent->id(), ent->m_self->room->id, ent->m_moveType, ent->m_dirFlag);
-    }
-    else
-    {
-        fprintf(*f, "\nsetEntityRoomMove(%d, nil, %d, %d);", ent->id(), ent->m_moveType, ent->m_dirFlag);
-    }
-
-    if(auto ch = std::dynamic_pointer_cast<Character>(ent))
-    {
-        fprintf(*f, "\nremoveAllItems(%d);", ent->id());
-        for(const InventoryNode& i : ch->m_inventory)
+        if(ent->character->target_id != ENTITY_ID_NONE)
         {
-            fprintf(*f, "\naddItem(%d, %d, %d);", ent->id(), i.id, i.count);
+            fprintf(*f, "\nsetCharacterTarget(%d, %d);", ent->id, ent->character->target_id);
+        }
+        else
+        {
+            fprintf(*f, "\nsetCharacterTarget(%d);", ent->id);
         }
 
-        for(int i = 0; i < PARAM_SENTINEL; i++)
+        fprintf(*f, "\nsetCharacterWeaponModel(%d, %d, %d);", ent->id, ent->character->current_weapon, ent->character->weapon_current_state);
+
+        fprintf(*f, "\nremoveAllItems(%d);", ent->id);
+        for(inventory_node_p i = ent->character->inventory; i; i = i->next)
         {
-            fprintf(*f, "\nsetCharacterParam(%d, %d, %.2f, %.2f);", ent->id(), i, ch->m_parameters.param[i], ch->m_parameters.maximum[i]);
+            fprintf(*f, "\naddItem(%d, %d, %d);", ent->id, i->id, i->count);
         }
+
+        for(int i = 0; i < PARAM_LASTINDEX; i++)
+        {
+            fprintf(*f, "\nsetCharacterParam(%d, %d, %.2f, %.2f);", ent->id, i, ent->character->parameters.param[i], ent->character->parameters.maximum[i]);
+        }
+    }
+
+    fprintf(*f, "\nsetEntityLinearSpeed(%d, %.2f);", ent->id, ent->linear_speed);
+    fprintf(*f, "\nsetEntitySpeed(%d, %.2f, %.2f, %.2f);", ent->id, ent->speed[0], ent->speed[1], ent->speed[2]);
+
+    fprintf(*f, "\nsetEntityFlags(%d, 0x%.4X, 0x%.4X, 0x%.8X);", ent->id, ent->state_flags, ent->type_flags, ent->callback_flags);
+    fprintf(*f, "\nsetEntityCollisionFlags(%d, %d, %d);", ent->id, ent->self->collision_type, ent->self->collision_shape);
+    fprintf(*f, "\nsetEntityTriggerLayout(%d, 0x%.2X);", ent->id, ent->trigger_layout);
+
+    if(ent->self->room != NULL)
+    {
+        fprintf(*f, "\nsetEntityRoomMove(%d, %d, %d, %d);", ent->id, ent->self->room->id, ent->move_type, ent->dir_flag);
+    }
+    else
+    {
+        fprintf(*f, "\nsetEntityRoomMove(%d, nil, %d, %d);", ent->id, ent->move_type, ent->dir_flag);
+    }
+
+    for(ss_animation_p ss_anim = &ent->bf->animations; ss_anim; ss_anim = ss_anim->next)
+    {
+        if(ss_anim->type != ANIM_TYPE_BASE)
+        {
+            if(ss_anim->model)
+            {
+                fprintf(*f, "\nentitySSAnimEnsureExists(%d, %d, %d);", ent->id, ss_anim->type, ss_anim->model->id);
+            }
+            else
+            {
+                fprintf(*f, "\nentitySSAnimEnsureExists(%d, %d, nil);", ent->id, ss_anim->type);
+            }
+        }
+        fprintf(*f, "\nsetEntityAnim(%d, %d, %d, %d, %d, %d);", ent->id, ss_anim->type, ss_anim->current_animation, ss_anim->current_frame, ss_anim->next_animation, ss_anim->next_frame);
+        fprintf(*f, "\nsetEntityAnimState(%d, %d, %d, %d);", ent->id, ss_anim->type, ss_anim->next_state, ss_anim->last_state);
+        fprintf(*f, "\nentitySSAnimSetTarget(%d, %d, %d, %.2f, %.2f, %.2f, %.6f, %.6f, %.6f);", ent->id, ss_anim->type, ss_anim->targeting_bone,
+            ss_anim->target[0], ss_anim->target[1], ss_anim->target[2],
+            ss_anim->bone_direction[0], ss_anim->bone_direction[1], ss_anim->bone_direction[2]);
+        fprintf(*f, "\nentitySSAnimSetAxisMod(%d, %d, %.6f, %.6f, %.6f);", ent->id, ss_anim->type,
+            ss_anim->targeting_axis_mod[0], ss_anim->targeting_axis_mod[1], ss_anim->targeting_axis_mod[2]);
+        fprintf(*f, "\nentitySSAnimSetTargetingLimit(%d, %d, %.6f, %.6f, %.6f, %.6f);", ent->id, ss_anim->type,
+            ss_anim->targeting_limit[0], ss_anim->targeting_limit[1], ss_anim->targeting_limit[2], ss_anim->targeting_limit[3]);
+        fprintf(*f, "\nentitySSAnimSetCurrentRotation(%d, %d, %.6f, %.6f, %.6f, %.6f);", ent->id, ss_anim->type,
+            ss_anim->current_mod[0], ss_anim->current_mod[1], ss_anim->current_mod[2], ss_anim->current_mod[3]);
+        fprintf(*f, "\nentitySSAnimSetExtFlags(%d, %d, %d, %d, %d);", ent->id, ss_anim->type, ss_anim->enabled,
+            ss_anim->anim_ext_flags, ss_anim->targeting_flags);
     }
 }
 
@@ -298,7 +302,7 @@ int Game_Save(const char* name)
     char local, *ch, token[512];
 
     local = 1;
-    for(ch = const_cast<char*>(name); *ch; ch++)
+    for(ch = (char*)name; *ch; ch++)
     {
         if((*ch == '\\') || (*ch == '/'))
         {
@@ -323,32 +327,39 @@ int Game_Save(const char* name)
         return 0;
     }
 
-    fprintf(f, "loadMap(\"%s\", %d, %d);\n", Gameflow_Manager.getLevelPath().c_str(), Gameflow_Manager.getGameID(), Gameflow_Manager.getLevelID());
+    fprintf(f, "loadMap(\"%s\", %d, %d);\n", gameflow_manager.CurrentLevelPath, gameflow_manager.CurrentGameID, gameflow_manager.CurrentLevelID);
 
     // Save flipmap and flipped room states.
-
-    for(uint32_t i = 0; i < engine_world.flip_data.size(); i++)
+    uint8_t *flip_map;
+    uint8_t *flip_state;
+    uint32_t flip_count;
+    World_GetFlipInfo(&flip_map, &flip_state, &flip_count);
+    for(uint32_t i = 0; i < flip_count; i++)
     {
-        fprintf(f, "setFlipMap(%d, 0x%02X, 0);\n", i, engine_world.flip_data[i].map);
-        fprintf(f, "setFlipState(%d, %s);\n", i, engine_world.flip_data[i].state ? "true" : "false");
+        fprintf(f, "setFlipMap(%d, 0x%02X, 0);\n", i, flip_map[i]);
+        fprintf(f, "setFlipState(%d, %d);\n", i, flip_state[i]);
     }
 
-    Save_Entity(&f, engine_world.character);    // Save Lara.
+    Save_Entity(&f, World_GetPlayer());    // Save Lara.
 
-    Save_EntityTree(&f, engine_world.entity_tree);
-
+    RedBlackNode_p root = World_GetEntityTreeRoot();
+    if(root)
+    {
+        Save_EntityTree(&f, root);
+    }
     fclose(f);
 
     return 1;
 }
 
-void Game_ApplyControls(std::shared_ptr<Entity> ent)
+
+void Game_ApplyControls(struct entity_s *ent)
 {
+    int8_t move_logic[3];
     int8_t look_logic[3];
 
     // Keyboard move logic
 
-    std::array<int8_t, 3> move_logic;
     move_logic[0] = control_states.move_forward - control_states.move_backward;
     move_logic[1] = control_states.move_right - control_states.move_left;
     move_logic[2] = control_states.move_up - control_states.move_down;
@@ -361,38 +372,38 @@ void Game_ApplyControls(std::shared_ptr<Entity> ent)
 
     // APPLY CONTROLS
 
-    cam_angles[0] += 2.2f * engine_frame_time * look_logic[0];
-    cam_angles[1] += 2.2f * engine_frame_time * look_logic[1];
-    cam_angles[2] += 2.2f * engine_frame_time * look_logic[2];
+    control_states.cam_angles[0] += 2.2 * engine_frame_time * look_logic[0];
+    control_states.cam_angles[1] += 2.2 * engine_frame_time * look_logic[1];
+    control_states.cam_angles[2] += 2.2 * engine_frame_time * look_logic[2];
 
-    // FIXME: Duplicate code - do we need cam control with no world??
-    if(!renderer.world())
+    if(!World_GetRoomByID(0))
     {
         if(control_mapper.use_joy)
         {
             if(control_mapper.joy_look_x != 0)
             {
-                cam_angles[0] -= 0.015 * engine_frame_time * control_mapper.joy_look_x;
+                control_states.cam_angles[0] -=0.015 * engine_frame_time * control_mapper.joy_look_x;
+
             }
             if(control_mapper.joy_look_y != 0)
             {
-                cam_angles[1] -= 0.015 * engine_frame_time * control_mapper.joy_look_y;
+                control_states.cam_angles[1] -=0.015 * engine_frame_time * control_mapper.joy_look_y;
             }
         }
 
-        if(control_states.mouse_look)
+        if(control_states.mouse_look != 0)
         {
-            cam_angles[0] -= 0.015f * control_states.look_axis_x;
-            cam_angles[1] -= 0.015f * control_states.look_axis_y;
+            control_states.cam_angles[0] -= 0.015 * control_states.look_axis_x;
+            control_states.cam_angles[1] -= 0.015 * control_states.look_axis_y;
             control_states.look_axis_x = 0.0;
             control_states.look_axis_y = 0.0;
         }
 
-        renderer.camera()->setRotation(cam_angles);
-        btScalar dist = (control_states.state_walk) ? (control_states.free_look_speed * engine_frame_time * 0.3) : (control_states.free_look_speed * engine_frame_time);
-        renderer.camera()->moveAlong(dist * move_logic[0]);
-        renderer.camera()->moveStrafe(dist * move_logic[1]);
-        renderer.camera()->moveVertical(dist * move_logic[2]);
+        Cam_SetRotation(&engine_camera, control_states.cam_angles);
+        float dist = (control_states.state_walk)?(control_states.free_look_speed * engine_frame_time * 0.3):(control_states.free_look_speed * engine_frame_time);
+        Cam_MoveAlong(&engine_camera, dist * move_logic[0]);
+        Cam_MoveStrafe(&engine_camera, dist * move_logic[1]);
+        Cam_MoveVertical(&engine_camera, dist * move_logic[2]);
 
         return;
     }
@@ -401,68 +412,70 @@ void Game_ApplyControls(std::shared_ptr<Entity> ent)
     {
         if(control_mapper.joy_look_x != 0)
         {
-            cam_angles[0] -= engine_frame_time * control_mapper.joy_look_x;
+            control_states.cam_angles[0] -=engine_frame_time * control_mapper.joy_look_x;
         }
         if(control_mapper.joy_look_y != 0)
         {
-            cam_angles[1] -= engine_frame_time * control_mapper.joy_look_y;
+            control_states.cam_angles[1] -=engine_frame_time * control_mapper.joy_look_y;
         }
     }
 
-    if(control_states.mouse_look)
+    if(control_states.mouse_look != 0)
     {
-        cam_angles[0] -= 0.015f * control_states.look_axis_x;
-        cam_angles[1] -= 0.015f * control_states.look_axis_y;
+        control_states.cam_angles[0] -= 0.015 * control_states.look_axis_x;
+        control_states.cam_angles[1] -= 0.015 * control_states.look_axis_y;
         control_states.look_axis_x = 0.0;
         control_states.look_axis_y = 0.0;
     }
 
-    if(control_states.free_look || !std::dynamic_pointer_cast<Character>(ent))
+    if((control_states.free_look != 0) || !ent || !ent->character)
     {
-        btScalar dist = (control_states.state_walk) ? (control_states.free_look_speed * engine_frame_time * 0.3) : (control_states.free_look_speed * engine_frame_time);
-        renderer.camera()->setRotation(cam_angles);
-        renderer.camera()->moveAlong(dist * move_logic[0]);
-        renderer.camera()->moveStrafe(dist * move_logic[1]);
-        renderer.camera()->moveVertical(dist * move_logic[2]);
-        renderer.camera()->m_currentRoom = Room_FindPosCogerrence(renderer.camera()->getPosition(), renderer.camera()->m_currentRoom);
+        float dist = (control_states.state_walk)?(control_states.free_look_speed * engine_frame_time * 0.3):(control_states.free_look_speed * engine_frame_time);
+        Cam_SetRotation(&engine_camera, control_states.cam_angles);
+        Cam_MoveAlong(&engine_camera, dist * move_logic[0]);
+        Cam_MoveStrafe(&engine_camera, dist * move_logic[1]);
+        Cam_MoveVertical(&engine_camera, dist * move_logic[2]);
+        engine_camera.current_room = World_FindRoomByPosCogerrence(engine_camera.pos, engine_camera.current_room);
     }
-    else if(control_states.noclip)
+    else if(control_states.noclip != 0)
     {
-        btVector3 pos;
-        btScalar dist = (control_states.state_walk) ? (control_states.free_look_speed * engine_frame_time * 0.3) : (control_states.free_look_speed * engine_frame_time);
-        renderer.camera()->setRotation(cam_angles);
-        renderer.camera()->moveAlong(dist * move_logic[0]);
-        renderer.camera()->moveStrafe(dist * move_logic[1]);
-        renderer.camera()->moveVertical(dist * move_logic[2]);
-        renderer.camera()->m_currentRoom = Room_FindPosCogerrence(renderer.camera()->getPosition(), renderer.camera()->m_currentRoom);
+        float pos[3];
+        float dist = (control_states.state_walk)?(control_states.free_look_speed * engine_frame_time * 0.3):(control_states.free_look_speed * engine_frame_time);
+        Cam_SetRotation(&engine_camera, control_states.cam_angles);
+        Cam_MoveAlong(&engine_camera, dist * move_logic[0]);
+        Cam_MoveStrafe(&engine_camera, dist * move_logic[1]);
+        Cam_MoveVertical(&engine_camera, dist * move_logic[2]);
+        engine_camera.current_room = World_FindRoomByPosCogerrence(engine_camera.pos, engine_camera.current_room);
 
-        ent->m_angles[0] = cam_angles[0] * DegPerRad;
-        pos = renderer.camera()->getPosition() + renderer.camera()->getViewDir() * control_states.cam_distance;
-        pos[2] -= 512.0;
-        ent->m_transform.getOrigin() = pos;
-        ent->updateTransform();
+        ent->angles[0] = 180.0 * control_states.cam_angles[0] / M_PI;
+        pos[0] = engine_camera.pos[0] + engine_camera.view_dir[0] * control_states.cam_distance;
+        pos[1] = engine_camera.pos[1] + engine_camera.view_dir[1] * control_states.cam_distance;
+        pos[2] = engine_camera.pos[2] + engine_camera.view_dir[2] * control_states.cam_distance - 512.0;
+        vec3_copy(ent->transform+12, pos);
+        Entity_UpdateTransform(ent);
+        Entity_UpdateRigidBody(ent, 1);
+        Entity_GhostUpdate(ent);
     }
     else
     {
-        std::shared_ptr<Character> ch = std::dynamic_pointer_cast<Character>(ent);
         // Apply controls to Lara
-        ch->m_command.action = control_states.state_action;
-        ch->m_command.ready_weapon = control_states.do_draw_weapon;
-        ch->m_command.jump = control_states.do_jump;
-        ch->m_command.shift = control_states.state_walk;
+        ent->character->cmd.action = control_states.state_action;
+        ent->character->cmd.ready_weapon = control_states.do_draw_weapon;
+        ent->character->cmd.jump = control_states.do_jump;
+        ent->character->cmd.shift = control_states.state_walk;
 
-        ch->m_command.roll = ((control_states.move_forward && control_states.move_backward) || control_states.do_roll);
+        ent->character->cmd.roll = ((control_states.move_forward && control_states.move_backward) || control_states.do_roll);
 
         // New commands only for TR3 and above
-        ch->m_command.sprint = control_states.state_sprint;
-        ch->m_command.crouch = control_states.state_crouch;
+        ent->character->cmd.sprint = control_states.state_sprint;
+        ent->character->cmd.crouch = control_states.state_crouch;
 
         if(control_states.use_small_medi)
         {
-            if(ch->getItemsCount(ITEM_SMALL_MEDIPACK) > 0 && ch->changeParam(PARAM_HEALTH, 250))
+            if((Inventory_GetItemsCount(ent->character->inventory, ITEM_SMALL_MEDIPACK) > 0) &&
+               (Character_ChangeParam(ent, PARAM_HEALTH, 250)))
             {
-                ch->setParam(PARAM_POISON, 0);
-                ch->removeItem(ITEM_SMALL_MEDIPACK, 1);
+                Inventory_RemoveItem(&ent->character->inventory, ITEM_SMALL_MEDIPACK, 1);
                 Audio_Send(TR_AUDIO_SOUND_MEDIPACK);
             }
 
@@ -471,440 +484,359 @@ void Game_ApplyControls(std::shared_ptr<Entity> ent)
 
         if(control_states.use_big_medi)
         {
-            if(ch->getItemsCount(ITEM_LARGE_MEDIPACK) > 0 &&
-               ch->changeParam(PARAM_HEALTH, LARA_PARAM_HEALTH_MAX))
+            if((Inventory_GetItemsCount(ent->character->inventory, ITEM_LARGE_MEDIPACK) > 0) &&
+               (Character_ChangeParam(ent, PARAM_HEALTH, LARA_PARAM_HEALTH_MAX)))
             {
-                ch->setParam(PARAM_POISON, 0);
-                ch->removeItem(ITEM_LARGE_MEDIPACK, 1);
+                Inventory_RemoveItem(&ent->character->inventory, ITEM_LARGE_MEDIPACK, 1);
                 Audio_Send(TR_AUDIO_SOUND_MEDIPACK);
             }
 
             control_states.use_big_medi = !control_states.use_big_medi;
         }
 
-        if((control_mapper.use_joy == 1) && (control_mapper.joy_move_x != 0))
+        if((control_mapper.use_joy == 1) && (control_mapper.joy_move_x != 0 ))
         {
-            ch->m_command.rot[0] = -2 * DegPerRad * engine_frame_time * control_mapper.joy_move_x;
+            ent->character->cmd.rot[0] = (control_mapper.joy_move_x > 0) ? (-1) : (1);
         }
         else
         {
-            ch->m_command.rot[0] = -2 * DegPerRad * engine_frame_time * static_cast<btScalar>(move_logic[1]);
+            ent->character->cmd.rot[0] = -move_logic[1];
         }
 
-        if((control_mapper.use_joy == 1) && (control_mapper.joy_move_y != 0))
+        if( (control_mapper.use_joy == 1) && (control_mapper.joy_move_y != 0 ) )
         {
-            ch->m_command.rot[1] = -2 * DegPerRad * engine_frame_time * control_mapper.joy_move_y;
+            ent->character->cmd.rot[1] = (control_mapper.joy_move_y > 0) ? (1) : (-1);
         }
         else
         {
-            ch->m_command.rot[1] = 2 * DegPerRad * engine_frame_time * static_cast<btScalar>(move_logic[0]);
+            ent->character->cmd.rot[1] = move_logic[0];
         }
 
-        ch->m_command.move = move_logic;
+        vec3_copy(ent->character->cmd.move, move_logic);
     }
 }
 
-bool Cam_HasHit(std::shared_ptr<BtEngineClosestConvexResultCallback> cb, btTransform &cameraFrom, btTransform &cameraTo)
+
+void Game_LoopEntities(struct RedBlackNode_s *x)
 {
-    btSphereShape cameraSphere(COLLISION_CAMERA_SPHERE_RADIUS);
-    cameraSphere.setMargin(COLLISION_MARGIN_DEFAULT);
-    cb->m_closestHitFraction = 1.0;
-    cb->m_hitCollisionObject = nullptr;
-    bt_engine_dynamicsWorld->convexSweepTest(&cameraSphere, cameraFrom, cameraTo, *cb);
-    return cb->hasHit();
+    entity_p entity = (entity_p)x->data;
+
+    if(entity->state_flags & ENTITY_STATE_ENABLED)
+    {
+        Entity_ProcessSector(entity);
+        Script_LoopEntity(engine_lua, entity->id);
+    }
+
+    if(x->left != NULL)
+    {
+        Game_LoopEntities(x->left);
+    }
+    if(x->right != NULL)
+    {
+        Game_LoopEntities(x->right);
+    }
 }
 
-void Cam_FollowEntity(Camera *cam, std::shared_ptr<Entity> ent, btScalar dx, btScalar dz)
+
+void Game_UpdateAllEntities(struct RedBlackNode_s *x)
 {
-    btTransform cameraFrom, cameraTo;
+    Entity_Frame((entity_p)x->data, engine_frame_time);
+    Entity_UpdateRigidBody((entity_p)x->data, 0);
 
-    //Reset to initial
-    cameraFrom.setIdentity();
-    cameraTo.setIdentity();
-
-    std::shared_ptr<BtEngineClosestConvexResultCallback> cb = ent->callbackForCamera();
-
-    btVector3 cam_pos = cam->getPosition();
-
-    ///@INFO Basic camera override, completely placeholder until a system classic-like is created
-    if(!control_states.mouse_look)//If mouse look is off
+    if(x->left != NULL)
     {
-        float currentAngle = cam_angles[0] * RadPerDeg;  //Current is the current cam angle
-        float targetAngle = ent->m_angles[0] * RadPerDeg; //Target is the target angle which is the entity's angle itself
-        float rotSpeed = 2.0; //Speed of rotation
-
-        ///@FIXME
-        //If Lara is in a specific state we want to rotate -75 deg or +75 deg depending on camera collision
-        if(ent->m_bf.animations.last_state == TR_STATE_LARA_REACH)
-        {
-            if(cam->m_targetDir == TR_CAM_TARG_BACK)
-            {
-                btVector3 cam_pos2 = cam_pos;
-                cameraFrom.setOrigin(cam_pos2);
-                cam_pos2[0] += std::sin((ent->m_angles[0] - 90.0f) * RadPerDeg) * control_states.cam_distance;
-                cam_pos2[1] -= std::cos((ent->m_angles[0] - 90.0f) * RadPerDeg) * control_states.cam_distance;
-                cameraTo.setOrigin(cam_pos2);
-
-                //If collided we want to go right otherwise stay left
-                if(Cam_HasHit(cb, cameraFrom, cameraTo))
-                {
-                    cam_pos2 = cam_pos;
-                    cameraFrom.setOrigin(cam_pos2);
-                    cam_pos2[0] += std::sin((ent->m_angles[0] + 90.0f) * RadPerDeg) * control_states.cam_distance;
-                    cam_pos2[1] -= std::cos((ent->m_angles[0] + 90.0f) * RadPerDeg) * control_states.cam_distance;
-                    cameraTo.setOrigin(cam_pos2);
-
-                    //If collided we want to go to back else right
-                    if(Cam_HasHit(cb, cameraFrom, cameraTo))
-                        cam->m_targetDir = TR_CAM_TARG_BACK;
-                    else
-                        cam->m_targetDir = TR_CAM_TARG_RIGHT;
-                }
-                else
-                {
-                    cam->m_targetDir = TR_CAM_TARG_LEFT;
-                }
-            }
-        }
-        else if(ent->m_bf.animations.last_state == TR_STATE_LARA_JUMP_BACK)
-        {
-            cam->m_targetDir = TR_CAM_TARG_FRONT;
-        }
-        else if(cam->m_targetDir != TR_CAM_TARG_BACK)
-        {
-            cam->m_targetDir = TR_CAM_TARG_BACK;//Reset to back
-        }
-
-        //If target mis-matches current we need to update the camera's angle to reach target!
-        if(currentAngle != targetAngle)
-        {
-            switch(cam->m_targetDir)
-            {
-                case TR_CAM_TARG_BACK:
-                    targetAngle = (ent->m_angles[0]) * RadPerDeg;
-                    break;
-                case TR_CAM_TARG_FRONT:
-                    targetAngle = (ent->m_angles[0] - 180.0) * RadPerDeg;
-                    break;
-                case TR_CAM_TARG_LEFT:
-                    targetAngle = (ent->m_angles[0] - 75.0) * RadPerDeg;
-                    break;
-                case TR_CAM_TARG_RIGHT:
-                    targetAngle = (ent->m_angles[0] + 75.0) * RadPerDeg;
-                    break;
-                default:
-                    targetAngle = (ent->m_angles[0]) * RadPerDeg;//Same as TR_CAM_TARG_BACK (default pos)
-                    break;
-            }
-
-            float d_angle = cam_angles[0] - targetAngle;
-            if(d_angle > Rad90)
-            {
-                d_angle -= 1 * RadPerDeg;
-            }
-            if(d_angle < -Rad90)
-            {
-                d_angle += 1 * RadPerDeg;
-            }
-            cam_angles[0] = std::fmod(cam_angles[0] + std::atan2(std::sin(currentAngle - d_angle), std::cos(currentAngle + d_angle)) * (engine_frame_time * rotSpeed), Rad360); //Update camera's angle
-        }
+        Game_UpdateAllEntities(x->left);
     }
-
-    cam_pos = ent->camPosForFollowing(dz);
-
-    //Code to manage screen shaking effects
-    if((renderer.camera()->m_shakeTime > 0.0) && (renderer.camera()->m_shakeValue > 0.0))
+    if(x->right != NULL)
     {
-        cam_pos[0] += (std::fmod(rand(), std::abs(renderer.camera()->m_shakeValue)) - (renderer.camera()->m_shakeValue / 2.0f)) * renderer.camera()->m_shakeTime;;
-        cam_pos[1] += (std::fmod(rand(), std::abs(renderer.camera()->m_shakeValue)) - (renderer.camera()->m_shakeValue / 2.0f)) * renderer.camera()->m_shakeTime;;
-        cam_pos[2] += (std::fmod(rand(), std::abs(renderer.camera()->m_shakeValue)) - (renderer.camera()->m_shakeValue / 2.0f)) * renderer.camera()->m_shakeTime;;
-        renderer.camera()->m_shakeTime  = (renderer.camera()->m_shakeTime < 0.0)?(0.0f):(renderer.camera()->m_shakeTime)-engine_frame_time;
+        Game_UpdateAllEntities(x->right);
     }
-
-    cameraFrom.setOrigin(cam_pos);
-    cam_pos[2] += dz;
-    cameraTo.setOrigin(cam_pos);
-    if(Cam_HasHit(cb, cameraFrom, cameraTo))
-    {
-        cam_pos.setInterpolate3(cameraFrom.getOrigin(), cameraTo.getOrigin(), cb->m_closestHitFraction);
-        cam_pos += cb->m_hitNormalWorld * 2.0;
-    }
-
-    if(dx != 0.0)
-    {
-        cameraFrom.setOrigin(cam_pos);
-        cam_pos += dx * cam->getRightDir();
-        cameraTo.setOrigin(cam_pos);
-        if(Cam_HasHit(cb, cameraFrom, cameraTo))
-        {
-            cam_pos.setInterpolate3(cameraFrom.getOrigin(), cameraTo.getOrigin(), cb->m_closestHitFraction);
-            cam_pos += cb->m_hitNormalWorld * 2.0;
-        }
-
-        cameraFrom.setOrigin(cam_pos);
-
-        {
-            float cos_ay =  cos(cam_angles[1]);
-            float cam_dx =  sin(cam_angles[0]) * cos_ay;
-            float cam_dy = -cos(cam_angles[0]) * cos_ay;
-            float cam_dz = -sin(cam_angles[1]);
-            cam_pos.m_floats[0] += cam_dx * control_states.cam_distance;
-            cam_pos.m_floats[1] += cam_dy * control_states.cam_distance;
-            cam_pos.m_floats[2] += cam_dz * control_states.cam_distance;
-        }
-
-        cameraTo.setOrigin(cam_pos);
-        if(Cam_HasHit(cb, cameraFrom, cameraTo))
-        {
-            cam_pos.setInterpolate3(cameraFrom.getOrigin(), cameraTo.getOrigin(), cb->m_closestHitFraction);
-            cam_pos += cb->m_hitNormalWorld * 2.0;
-        }
-    }
-
-    //Update cam pos
-    cam->setPosition( cam_pos );
-
-    //Modify cam pos for quicksand rooms
-    cam->m_currentRoom = Room_FindPosCogerrence(cam->getPosition() - btVector3(0, 0, 128), cam->m_currentRoom);
-    if((cam->m_currentRoom != nullptr) && (cam->m_currentRoom->flags & TR_ROOM_FLAG_QUICKSAND))
-    {
-        btVector3 pos = cam->getPosition();
-        pos[2] = cam->m_currentRoom->bb_max[2] + 2.0f * 64.0f;
-        cam->setPosition(pos);
-    }
-
-    cam->setRotation(cam_angles);
-    cam->m_currentRoom = Room_FindPosCogerrence(cam->getPosition(), cam->m_currentRoom);
 }
 
-void Game_LoopEntities(std::map<uint32_t, std::shared_ptr<Entity> > &entities)
+
+void Game_UpdateAI(struct RedBlackNode_s *x)
 {
-    for(auto entityPair : entities)
-    {
-        std::shared_ptr<Entity> entity = entityPair.second;
-        if(entity->m_enabled)
-        {
-            entity->processSector();
-            engine_lua.loopEntity(entity->id());
+    AI_UpdateEntity((entity_p)x->data);
 
-            if(entity->m_typeFlags & ENTITY_TYPE_COLLCHECK)
-                entity->checkCollisionCallbacks();
-        }
+    if(x->left != NULL)
+    {
+        Game_UpdateAI(x->left);
+    }
+    if(x->right != NULL)
+    {
+        Game_UpdateAI(x->right);
     }
 }
 
-void Game_UpdateAllEntities(std::map<uint32_t, std::shared_ptr<Entity> > &entities)
+
+void Game_UpdateCharactersTree(struct RedBlackNode_s *x)
 {
-    for(auto entityPair : entities)
+    entity_p ent = (entity_p)x->data;
+
+    if(ent && ent->character)
     {
-        std::shared_ptr<Entity> entity = entityPair.second;
-        if(entity->m_typeFlags & ENTITY_TYPE_DYNAMIC)
+        if(ent->character->cmd.action && (ent->type_flags & ENTITY_TYPE_TRIGGER_ACTIVATOR))
         {
-            entity->updateRigidBody(false);
+            Entity_CheckActivators(ent);
         }
-        else if(entity->frame(engine_frame_time))
+        if(Character_GetParam(ent, PARAM_HEALTH) <= 0.0)
         {
-            entity->updateRigidBody(false);
+            ent->character->resp.kill = 1;                                      // Kill, if no HP.
         }
+        Character_ApplyCommands(ent);
+
+        for(int h = 0; h < ent->character->hair_count; h++)
+        {
+            Hair_Update(ent->character->hairs[h], ent->physics);
+        }
+    }
+
+    if(x->left != NULL)
+    {
+        Game_UpdateCharactersTree(x->left);
+    }
+    if(x->right != NULL)
+    {
+        Game_UpdateCharactersTree(x->right);
     }
 }
 
-void Game_UpdateAI()
-{
-    //for(ALL CHARACTERS, EXCEPT PLAYER)
-    {
-        // UPDATE AI commands
-    }
-}
-
-void Game_UpdateCharactersTree(const std::map<uint32_t, std::shared_ptr<Entity> >& entities)
-{
-    for(const auto& entPair : entities)
-    {
-        std::shared_ptr<Character> ent = std::dynamic_pointer_cast<Character>(entPair.second);
-        if(!ent)
-            continue;
-
-        if(ent->m_command.action && (ent->m_typeFlags & ENTITY_TYPE_TRIGGER_ACTIVATOR))
-        {
-            ent->checkActivators();
-        }
-        if(ent->getParam(PARAM_HEALTH) <= 0.0)
-        {
-            ent->m_response.killed = true;                                      // Kill, if no HP.
-        }
-        ent->applyCommands();
-        ent->updateHair();
-    }
-}
 
 void Game_UpdateCharacters()
 {
-    std::shared_ptr<Character> ent = engine_world.character;
+    entity_p ent = World_GetPlayer();
 
-    if(ent)
+    if(ent && ent->character)
     {
-        if(ent->m_command.action && (ent->m_typeFlags & ENTITY_TYPE_TRIGGER_ACTIVATOR))
+        if(ent->character->cmd.action && (ent->type_flags & ENTITY_TYPE_TRIGGER_ACTIVATOR))
         {
-            ent->checkActivators();
+            Entity_CheckActivators(ent);
         }
-        if(ent->getParam(PARAM_HEALTH) <= 0.0)
+        if(Character_GetParam(ent, PARAM_HEALTH) <= 0.0)
         {
-            ent->m_response.killed = true;   // Kill, if no HP.
+            ent->character->resp.kill = 0;   // Kill, if no HP.
         }
-        ent->updateHair();
+        for(int h = 0; h < ent->character->hair_count; h++)
+        {
+            Hair_Update(ent->character->hairs[h], ent->physics);
+        }
     }
 
-    Game_UpdateCharactersTree(engine_world.entity_tree);
+    RedBlackNode_p root = World_GetEntityTreeRoot();
+    if(root)
+    {
+        Game_UpdateCharactersTree(root);
+    }
 }
 
-__inline btScalar Game_Tick(btScalar *game_logic_time)
-{
-    int t = static_cast<int>(*game_logic_time / GAME_LOGIC_REFRESH_INTERVAL);
-    btScalar dt = static_cast<btScalar>(t) * GAME_LOGIC_REFRESH_INTERVAL;
-    *game_logic_time -= dt;
-    return dt;
-}
 
-void Game_Frame(btScalar time)
+void Game_Frame(float time)
 {
-    static btScalar game_logic_time = 0.0;
-    game_logic_time += time;
-
-    const bool is_character = (engine_world.character != nullptr);
+    entity_p player = World_GetPlayer();
+    bool is_entitytree = (World_GetEntityTreeRoot() != NULL);
+    bool is_character  = (player != NULL);
 
     // GUI and controls should be updated at all times!
 
-    Controls_PollSDLInput();
     Gui_Update();
 
     ///@FIXME: I have no idea what's happening here! - Lwmte
 
-    if(!ConsoleInfo::instance().isVisible() && control_states.gui_inventory && main_inventory_manager)
+    if(!Con_IsShown() && control_states.gui_inventory && main_inventory_manager)
     {
         if((is_character) &&
-           (main_inventory_manager->getCurrentState() == InventoryManager::InventoryState::Disabled))
+           (main_inventory_manager->getCurrentState() == gui_InventoryManager::INVENTORY_DISABLED))
         {
-            main_inventory_manager->setInventory(&engine_world.character->m_inventory);
-            main_inventory_manager->send(InventoryManager::InventoryState::Open);
+            main_inventory_manager->setInventory(&player->character->inventory);
+            main_inventory_manager->send(gui_InventoryManager::INVENTORY_OPEN);
         }
-        if(main_inventory_manager->getCurrentState() == InventoryManager::InventoryState::Idle)
+        if(main_inventory_manager->getCurrentState() == gui_InventoryManager::INVENTORY_IDLE)
         {
-            main_inventory_manager->send(InventoryManager::InventoryState::Closed);
+            main_inventory_manager->send(gui_InventoryManager::INVENTORY_CLOSE);
         }
     }
 
     // If console or inventory is active, only thing to update is audio.
-    if(ConsoleInfo::instance().isVisible() || main_inventory_manager->getCurrentState() != InventoryManager::InventoryState::Disabled)
+    if(Con_IsShown() || main_inventory_manager->getCurrentState() != gui_InventoryManager::INVENTORY_DISABLED)
     {
-        if(game_logic_time >= GAME_LOGIC_REFRESH_INTERVAL)
-        {
-            Audio_Update();
-            Game_Tick(&game_logic_time);
-        }
         return;
     }
 
-    // We're going to update main logic with a fixed step.
-    // This allows to conserve CPU resources and keep everything in sync!
+    Script_DoTasks(engine_lua, time);
 
-    if(game_logic_time >= GAME_LOGIC_REFRESH_INTERVAL)
+    if(is_character)
     {
-        btScalar dt = Game_Tick(&game_logic_time);
-        engine_lua.doTasks(dt);
-        Game_UpdateAI();
-        Audio_Update();
+        Entity_ProcessSector(player);
+        Character_UpdateParams(player);
+        Entity_CheckCollisionCallbacks(player);                                 ///@FIXME: Must do it for ALL interactive entities!
+    }
 
-        if(is_character)
-        {
-            engine_world.character->processSector();
-            engine_world.character->updateParams();
-            engine_world.character->checkCollisionCallbacks();   ///@FIXME: Must do it for ALL interactive entities!
-        }
-
-        Game_LoopEntities(engine_world.entity_tree);
+    if(is_entitytree)
+    {
+        Game_UpdateAI(World_GetEntityTreeRoot());
+        Game_LoopEntities(World_GetEntityTreeRoot());
     }
 
     // This must be called EVERY frame to max out smoothness.
     // Includes animations, camera movement, and so on.
+    if(engine_camera_state.state != CAMERA_STATE_FLYBY)
+    {
+        Game_ApplyControls(player);
+    }
 
-    Game_ApplyControls(engine_world.character);
+    Cam_PlayFlyBy(time);
 
     if(is_character)
     {
-        if(engine_world.character->m_typeFlags & ENTITY_TYPE_DYNAMIC)
+        if(player->type_flags & ENTITY_TYPE_DYNAMIC)
         {
-            engine_world.character->updateRigidBody(false);
+            Entity_UpdateRigidBody(player, 0);
         }
         if(!control_states.noclip && !control_states.free_look)
         {
-            engine_world.character->frame(engine_frame_time);
-            engine_world.character->applyCommands();
-            engine_world.character->frame(0.0);
-            Cam_FollowEntity(renderer.camera(), engine_world.character, 16.0, 128.0);
+            Character_ApplyCommands(player);
+            Entity_Frame(player, engine_frame_time);
+            if(engine_camera_state.state != CAMERA_STATE_FLYBY)
+            {
+                Cam_FollowEntity(&engine_camera, player, 16.0, 128.0);
+            }
+            if(engine_camera_state.state == CAMERA_STATE_LOOK_AT)
+            {
+                entity_p target = World_GetEntityByID(engine_camera_state.target_id);
+                if(target)
+                {
+                    Character_LookAt(player, target->obb->centre);
+                }
+            }
+            else
+            {
+                Character_ClearLookAt(player);
+            }
         }
     }
 
     Game_UpdateCharacters();
 
-    Game_UpdateAllEntities(engine_world.entity_tree);
+    if(is_entitytree)
+    {
+        Game_UpdateAllEntities(World_GetEntityTreeRoot());
+    }
 
-    bt_engine_dynamicsWorld->stepSimulation(time / 2.0f, 0);
-    bt_engine_dynamicsWorld->stepSimulation(time / 2.0f, 0);
+    Physics_StepSimulation(time);
 
     Controls_RefreshStates();
-    engine_world.updateAnimTextures();
+    renderer.UpdateAnimTextures();
 }
+
 
 void Game_Prepare()
 {
-    if(engine_world.character)
+    entity_p player = World_GetPlayer();
+    if(player && player->character)
     {
         // Set character values to default.
 
-        engine_world.character->setParamMaximum(PARAM_HEALTH, LARA_PARAM_HEALTH_MAX);
-        engine_world.character->setParam(PARAM_HEALTH, LARA_PARAM_HEALTH_MAX);
-        engine_world.character->setParamMaximum(PARAM_AIR, LARA_PARAM_AIR_MAX);
-        engine_world.character->setParam(PARAM_AIR, LARA_PARAM_AIR_MAX);
-        engine_world.character->setParamMaximum(PARAM_STAMINA, LARA_PARAM_STAMINA_MAX);
-        engine_world.character->setParam(PARAM_STAMINA, LARA_PARAM_STAMINA_MAX);
-        engine_world.character->setParamMaximum(PARAM_WARMTH, LARA_PARAM_WARMTH_MAX);
-        engine_world.character->setParam(PARAM_WARMTH, LARA_PARAM_WARMTH_MAX);
-        engine_world.character->setParamMaximum(PARAM_POISON, LARA_PARAM_POISON_MAX);
-        engine_world.character->setParam(PARAM_POISON, 0);
+        Character_SetParamMaximum(player, PARAM_HEALTH , LARA_PARAM_HEALTH_MAX );
+        Character_SetParam       (player, PARAM_HEALTH , LARA_PARAM_HEALTH_MAX );
+        Character_SetParamMaximum(player, PARAM_AIR    , LARA_PARAM_AIR_MAX    );
+        Character_SetParam       (player, PARAM_AIR    , LARA_PARAM_AIR_MAX    );
+        Character_SetParamMaximum(player, PARAM_STAMINA, LARA_PARAM_STAMINA_MAX);
+        Character_SetParam       (player, PARAM_STAMINA, LARA_PARAM_STAMINA_MAX);
+        Character_SetParamMaximum(player, PARAM_WARMTH,  LARA_PARAM_WARMTH_MAX );
+        Character_SetParam       (player, PARAM_WARMTH , LARA_PARAM_WARMTH_MAX );
 
         // Set character statistics to default.
 
-        engine_world.character->m_statistics.distance = 0.0;
-        engine_world.character->m_statistics.ammo_used = 0;
-        engine_world.character->m_statistics.hits = 0;
-        engine_world.character->m_statistics.kills = 0;
-        engine_world.character->m_statistics.medipacks_used = 0;
-        engine_world.character->m_statistics.saves_used = 0;
-        engine_world.character->m_statistics.secrets_game = 0;
-        engine_world.character->m_statistics.secrets_level = 0;
+        player->character->statistics.distance       = 0.0;
+        player->character->statistics.ammo_used      = 0;
+        player->character->statistics.hits           = 0;
+        player->character->statistics.kills          = 0;
+        player->character->statistics.medipacks_used = 0;
+        player->character->statistics.saves_used     = 0;
+        player->character->statistics.secrets_game   = 0;
+        player->character->statistics.secrets_level  = 0;
     }
-    else if(!engine_world.rooms.empty())
+    else
     {
         // If there is no character present, move default camera position to
         // the first room (useful for TR1-3 cutscene levels).
-
-        engine_camera.setPosition(engine_world.rooms[0]->bb_max);
+        room_p room = World_GetRoomByID(0);
+        if(room)
+        {
+            engine_camera.pos[0] = room->bb_max[0];
+            engine_camera.pos[1] = room->bb_max[1];
+            engine_camera.pos[2] = room->bb_max[2];
+        }
     }
 
     // Set gameflow parameters to default.
     // Reset secret trigger map.
-
-    memset(Gameflow_Manager.SecretsTriggerMap, 0, sizeof(Gameflow_Manager.SecretsTriggerMap));
+    memset(gameflow_manager.SecretsTriggerMap, 0, sizeof(gameflow_manager.SecretsTriggerMap));
 }
+
+
+void Game_PlayFlyBy(uint32_t sequence_id, int once)
+{
+    if(engine_camera_state.state != CAMERA_STATE_FLYBY)
+    {
+        for(flyby_camera_sequence_p s = World_GetFlyBySequences(); s; s = s->next)
+        {
+            if((s->start->sequence == (int)sequence_id) && (!once || !s->locked))
+            {
+                engine_camera_state.state = CAMERA_STATE_FLYBY;
+                engine_camera_state.flyby = s;
+                s->locked = (once != 0x00);
+                engine_camera_state.time = 0.0f;
+                break;
+            }
+        }
+    }
+}
+
+
+void Game_SetCameraTarget(uint32_t entity_id, float timer)
+{
+    entity_p ent = World_GetEntityByID(entity_id);
+    engine_camera_state.target_id = entity_id;
+    if(ent && (engine_camera_state.state == CAMERA_STATE_NORMAL))
+    {
+        engine_camera_state.state = CAMERA_STATE_LOOK_AT;
+        engine_camera_state.time = timer;
+    }
+}
+
+// if timer == 0 then camera set is permanent
+void Game_SetCamera(uint32_t camera_id, int once, int move, float timer)
+{
+    static_camera_sink_p sink = World_GetstaticCameraSink(camera_id);
+    if(sink)
+    {
+        if(engine_camera_state.state != CAMERA_STATE_FLYBY)
+        {
+            engine_camera_state.state = CAMERA_STATE_FIXED;
+            engine_camera_state.sink = sink;
+            engine_camera_state.time = timer;
+            engine_camera_state.move = move;
+        }
+    }
+}
+
+
+void Game_StopFlyBy()
+{
+    engine_camera_state.state = CAMERA_STATE_NORMAL;
+    engine_camera_state.flyby = NULL;
+    Cam_SetFovAspect(&engine_camera, screen_info.fov, engine_camera.aspect);
+}
+
 
 void Game_LevelTransition(uint16_t level_index)
 {
     char file_path[MAX_ENGINE_PATH];
-
-    engine_lua.getLoadingScreen(level_index, file_path);
-    Gui_FadeAssignPic(FaderType::LoadScreen, file_path);
-    Gui_FadeStart(FaderType::LoadScreen, FaderDir::Out);
-
+    Script_GetLoadingScreen(engine_lua, level_index, file_path);
+    if(!Gui_LoadScreenAssignPic(file_path))
+    {
+        Gui_LoadScreenAssignPic("resource/graphics/legal.png");
+    }
     Audio_EndStreams();
 }
