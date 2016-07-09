@@ -1,7 +1,6 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_platform.h>
-#include <SDL2/SDL_image.h>
 #include <SDL2/SDL_opengl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +43,7 @@ extern "C" {
 #include "trigger.h"
 #include "character_controller.h"
 #include "render/bsp_tree.h"
+#include "image.h"
 
 
 static SDL_Window             *sdl_window     = NULL;
@@ -86,7 +86,6 @@ void Engine_Init_Pre();
 void Engine_Init_Post();
 void Engine_InitGL();
 void Engine_InitAL();
-void Engine_InitSDLImage();
 void Engine_InitSDLVideo();
 void Engine_InitSDLControls();
 void Engine_InitDefaultGlobals();
@@ -109,8 +108,6 @@ void Engine_Start(const char *config_name)
     Engine_InitSDLControls();
     Engine_InitSDLVideo();
     Engine_InitAL();
-
-    Engine_InitSDLImage();
 
     // Additional OpenGL initialization.
     Engine_InitGL();
@@ -192,7 +189,6 @@ void Engine_Shutdown(int val)
     }
 
     Sys_Destroy();
-    IMG_Quit();
     SDL_Quit();
 
     exit(val);
@@ -309,24 +305,12 @@ void Engine_InitAL()
 }
 
 
-void Engine_InitSDLImage()
-{
-    int flags = IMG_INIT_JPG | IMG_INIT_PNG;
-    int init  = IMG_Init(flags);
-
-    if((init & flags) != flags)
-    {
-        Sys_DebugLog(SYS_LOG_FILENAME, "SDL_Image error: failed to initialize JPG and/or PNG support.");
-    }
-}
-
-
 void Engine_InitSDLVideo()
 {
     Uint32 video_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS;
     PFNGLGETSTRINGPROC lglGetString = NULL;
 
-    if(screen_info.FS_flag)
+    if(screen_info.fullscreen)
     {
         video_flags |= SDL_WINDOW_FULLSCREEN;
     }
@@ -523,8 +507,8 @@ void Engine_Display()
         Cam_RecalcClipPlanes(&engine_camera);
         // GL_VERTEX_ARRAY | GL_COLOR_ARRAY
 
-        screen_info.show_debuginfo %= 4;
-        if(screen_info.show_debuginfo)
+        screen_info.debug_view_state %= 4;
+        if(screen_info.debug_view_state)
         {
             ShowDebugInfo();
         }
@@ -541,7 +525,6 @@ void Engine_Display()
         Gui_SwitchGLMode(1);
         qglEnable(GL_ALPHA_TEST);
 
-        Gui_DrawNotifier();
         qglPopClientAttrib();        ///@POP -> GL_VERTEX_ARRAY | GL_COLOR_ARRAY
         Gui_Render();
         Gui_SwitchGLMode(0);
@@ -861,7 +844,7 @@ void ShowDebugInfo()
         }
     }
 
-    switch(screen_info.show_debuginfo)
+    switch(screen_info.debug_view_state)
     {
         case 1:
             {
@@ -927,6 +910,26 @@ void ShowDebugInfo()
 /*
  * MISC ENGINE FUNCTIONALITY
  */
+
+void Engine_TakeScreenShot()
+{
+    static int screenshot_cnt = 0;
+    GLint ViewPort[4];
+    char fname[128];
+    GLubyte *pixels;
+    uint32_t str_size;
+
+    qglGetIntegerv(GL_VIEWPORT, ViewPort);
+    snprintf(fname, 128, "screen_%.5d.png", screenshot_cnt);
+    str_size = ViewPort[2] * 4;
+    pixels = (GLubyte*)malloc(str_size * ViewPort[3]);
+    qglReadPixels(0, 0, ViewPort[2], ViewPort[3], GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    Image_Save(fname, IMAGE_FORMAT_PNG, (uint8_t*)pixels, ViewPort[2], ViewPort[3], 32);
+
+    free(pixels);
+    screenshot_cnt++;
+}
+
 
 void Engine_GetLevelName(char *name, const char *path)
 {
@@ -1118,6 +1121,7 @@ int Engine_ExecCmd(char *ch)
             Con_AddLine("showing_lines - read and write number of showing lines\0", FONTSTYLE_CONSOLE_NOTIFY);
             Con_AddLine("cvars - lua's table of cvar's, to see them type: show_table(cvars)\0", FONTSTYLE_CONSOLE_NOTIFY);
             Con_AddLine("free_look - switch camera mode\0", FONTSTYLE_CONSOLE_NOTIFY);
+            Con_AddLine("r_crosshair - switch crosshair visibility\0", FONTSTYLE_CONSOLE_NOTIFY);
             Con_AddLine("cam_distance - camera distance to actor\0", FONTSTYLE_CONSOLE_NOTIFY);
             Con_AddLine("r_wireframe, r_portals, r_frustums, r_room_boxes, r_boxes, r_normals, r_skip_room, r_flyby, r_triggers - render modes\0", FONTSTYLE_CONSOLE_NOTIFY);
             Con_AddLine("playsound(id) - play specified sound\0", FONTSTYLE_CONSOLE_NOTIFY);
@@ -1253,6 +1257,11 @@ int Engine_ExecCmd(char *ch)
         else if(!strcmp(token, "r_triggers"))
         {
             renderer.r_flags ^= R_DRAW_TRIGGERS;
+            return 1;
+        }
+        else if(!strcmp(token, "r_crosshair"))
+        {
+            screen_info.crosshair = !screen_info.crosshair;
             return 1;
         }
         else if(!strcmp(token, "room_info"))
