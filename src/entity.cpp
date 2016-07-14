@@ -268,9 +268,12 @@ void Entity_UpdateRigidBody(struct entity_s *ent, int force)
                 return;
         };
         Mat4_E(ent->bf->bone_tags[0].full_transform);
+        Physics_GetBodyWorldTransform(ent->physics, tr, 0);
+        Physics_SetGhostWorldTransform(ent->physics, tr, 0);
         for(uint16_t i = 1; i < ent->bf->bone_tag_count; i++)
         {
             Physics_GetBodyWorldTransform(ent->physics, tr, i);
+            Physics_SetGhostWorldTransform(ent->physics, tr, i);
             Mat4_inv_Mat4_affine_mul(ent->bf->bone_tags[i].full_transform, ent->transform, tr);
         }
 
@@ -393,13 +396,11 @@ void Entity_GhostUpdate(struct entity_s *ent)
 {
     if(Physics_IsGhostsInited(ent->physics))
     {
-        float tr[16], v[3];
+        float tr[16];
         uint16_t max_index = Physics_GetBodiesCount(ent->physics);
         for(uint16_t i = 0; i < max_index; i++)
         {
             Physics_GetBodyWorldTransform(ent->physics, tr, i);
-            Mat4_vec3_mul(v, tr, ent->bf->bone_tags[i].mesh_base->centre);
-            vec3_copy(tr + 12, v);
             Physics_SetGhostWorldTransform(ent->physics, tr, i);
         }
     }
