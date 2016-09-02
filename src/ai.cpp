@@ -170,14 +170,14 @@ void AI_UpdateWolf(entity_p entity)
         {
         case 8:
             entity->bf->animations.current_animation = 6;
-            entity->bf->animations.last_state = 5;
+            entity->bf->animations.current_state = 5;
          break;
         case 3:
             {
                 ///ATTACK
                 if(World_GetPlayer()->current_sector == entity->current_sector)
                 {
-                    entity->bf->animations.last_state = entity->bf->animations.next_state;
+                    entity->bf->animations.current_state = entity->bf->animations.next_state;
                     entity->bf->animations.current_animation = 10;
                 }
             }
