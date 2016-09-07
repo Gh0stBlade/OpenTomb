@@ -25,8 +25,6 @@ private:
     std::vector<CPathNode*>     m_openList;              ///Nodes which have to be searched
     std::vector<CPathNode*>     m_closedList;            ///Nodes which have been searched and are now closed
 
-    struct room_s               *m_startRoom;            ///Starting room of search
-    struct room_s               *m_targetRoom;           ///target room to reach
     uint32_t                     m_flags;
 
     void AddToOpenList(CPathNode* node);
@@ -35,7 +33,7 @@ private:
     void RemoveFromClosedList(CPathNode* node);
     int  IsInOpenList(CPathNode* node);
     int  IsInClosedList(CPathNode* node);
-    CPathNode* GetNodeFromXY(uint16_t x, uint16_t y);
+    CPathNode* GetNodeFromXY(int16_t x, int16_t y, CPathNode* current_node);
     int  CalculateHeuristic(CPathNode* start, CPathNode* target);
     void GeneratePath(CPathNode* end_node);
     int  IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node);

@@ -20,13 +20,11 @@ CPathFinder::CPathFinder()
     this->m_openList.clear();
     this->m_closedList.clear();
     this->m_resultPath.clear();
-    this->m_startRoom = NULL;
-    this->m_targetRoom = NULL;
     this->m_flags = 0;
 }
 
 /*
- * Default destructor, uninitialise CPathNode here.
+ * Default destructor, uninitialise CPathFinder here.
  */
 
 CPathFinder::~CPathFinder()
@@ -35,8 +33,6 @@ CPathFinder::~CPathFinder()
     this->m_openList.clear();
     this->m_closedList.clear();
     this->m_resultPath.clear();
-    this->m_startRoom = NULL;
-    this->m_targetRoom = NULL;
     this->m_flags = 0;
 }
 
@@ -65,9 +61,6 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
         return;
     }
 
-    //Set our start/target room
-    this->m_startRoom = start->owner_room;
-    this->m_targetRoom = target->owner_room;
 
     //Clear nodes list, open and closed list
     this->m_nodes.clear();
@@ -86,7 +79,7 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
     }
 
     //Set flags so that we can customise the algorithm based on ai types
-    this->m_flags ^= flags;
+    this->m_flags |= flags;
 
     //Get our start node and target node
     start_node = &this->m_nodes[start->index_x + (start->owner_room->sectors_x * start->index_y)];
@@ -149,9 +142,9 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
 ///Diagonal sectors (0, 2, 5, 7) must cost us more?
 
             //Iterate through neighbours of the current node, get the one with the lowest F cost
-            for(int32_t x = -1; x < 2; x++)
+            for(int16_t x = -1; x < 2; x++)
             {
-                for(int32_t y = -1; y < 2; y++)
+                for(int16_t y = -1; y < 2; y++)
                 {
                     //This is the current node, we'll skip it as it's useless!
                     if(x == 0 && y == 0)
@@ -160,7 +153,7 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
                     }
 
                     //Grab the neighbour node
-                    neighbour_node = this->GetNodeFromXY(x + current_node->GetSector()->index_x, y + current_node->GetSector()->index_y);
+                    neighbour_node = this->GetNodeFromXY(x, y, current_node);
 
                     if(neighbour_node == NULL)
                     {
@@ -239,21 +232,21 @@ CPathNode* CPathFinder::GetNextOpenNode()
 {
     int32_t current_cost, current_index;
 
-    current_cost = 1000;///@FIXME
-    current_index = -1;
-
-    for(size_t i = 0; i < this->m_openList.size(); i++)
+    if(this->m_openList.size() > 0)
     {
-        uint32_t cost = this->m_openList.at(i)->GetFCost();
-        if(cost < current_cost)
+        current_cost = this->m_openList[0]->GetFCost();
+        current_index = 0;
+
+        for(size_t i = 0; i < this->m_openList.size(); i++)
         {
-            current_cost = cost;
-            current_index = i;
+            uint32_t next_cost = this->m_openList.at(i)->GetFCost();
+            if(next_cost < current_cost)
+            {
+                current_cost = next_cost;
+                current_index = i;
+            }
         }
-    }
 
-    if(this->m_openList.size() > 0 && current_index != -1)
-    {
         return this->m_openList.at(current_index);
     }
     else
@@ -367,14 +360,22 @@ int CPathFinder::IsInClosedList(CPathNode* node)
  * Returns CPathNode* at x, y in node list.
  */
 
-CPathNode* CPathFinder::GetNodeFromXY(uint16_t x, uint16_t y)
+CPathNode* CPathFinder::GetNodeFromXY(int16_t x, int16_t y, CPathNode* current_node)
 {
-    if(this->m_startRoom != NULL)
+    room_s* room = current_node->GetSector()->owner_room;
+    if(room != NULL)
     {
-            if((x >= 0) && (x < this->m_startRoom->sectors_x) && (y >= 0) && (y < this->m_startRoom->sectors_y))
+        room_sector_s* sector = current_node->GetSector();
+        if(sector != NULL)
+        {
+            int16_t neighbour_x = x + sector->index_x;
+            int16_t neighbour_y = y + sector->index_y;
+
+            if((neighbour_x >= 0) && (neighbour_x < room->sectors_x) && (neighbour_y >= 0) && (neighbour_y < room->sectors_y))
             {
-                return &this->m_nodes[x + (this->m_startRoom->sectors_x*y)];
+                return &this->m_nodes[neighbour_x + (room->sectors_x*neighbour_y)];
             }
+        }
     }
     else
     {
@@ -519,11 +520,11 @@ int CPathFinder::GetMovementCost(CPathNode* from_node, CPathNode* to_node)
 
     if(from_node->GetSector()->index_x != to_node->GetSector()->index_x && from_node->GetSector()->index_y != to_node->GetSector()->index_y)
     {
-        movement_cost += 14;
+        movement_cost = 14;
     }
     else
     {
-        movement_cost += 10;
+        movement_cost = 10;
     }
 
     return movement_cost;
