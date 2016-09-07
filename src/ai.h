@@ -31,11 +31,13 @@ enum tr1Enemy
     LION_F
 };
 
+//Note: Multiple flags can be set for entities that fly/move on ground (TR1 Flying Mutants) and swim/move on ground (TR1 Rats)
 enum AIType
 {
-    GROUND = (1 << 1),
-    WATER  = (1 << 2),
-    FLYING = (1 << 3)
+    GROUND  = (1 << 0),
+    WATER   = (1 << 1),
+    FLYING  = (1 << 2),
+    NUM_AI_TYPES
 };
 
 #endif // AI_H
