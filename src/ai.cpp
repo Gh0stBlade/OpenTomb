@@ -52,8 +52,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            AI_UpdateWolf(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            //AI_UpdateWolf(entity);
             delete pathFinder;
         }
         break;
@@ -62,8 +62,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            AI_UpdateBear(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            //AI_UpdateBear(entity);
             delete pathFinder;
         }
         break;
@@ -72,8 +72,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
-            AI_UpdateBat(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
+            //AI_UpdateBat(entity);
             delete pathFinder;
         }
         break;
@@ -82,8 +82,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            AI_UpdateCroc(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            //AI_UpdateCroc(entity);
             delete pathFinder;
         }
         break;
@@ -92,8 +92,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
-            AI_UpdateCroc2(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
+            //AI_UpdateCroc2(entity);
             delete pathFinder;
         }
         break;
@@ -103,8 +103,8 @@ void AI_UpdateEntity(entity_p entity)
             CPathFinder* pathFinder = NULL;
             pathFinder = new CPathFinder();
             pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            AI_UpdateLion(entity);
+            //AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            //AI_UpdateLion(entity);
             delete pathFinder;
         }
         break;
