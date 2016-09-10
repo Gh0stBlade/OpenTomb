@@ -14,6 +14,8 @@ message(WARNING "This CMakeLists.txt does not generate usable executables, it is
 add_subdirectory(doc)
 
 set(OPENTOMB_SRCS
+    src/ai.cpp
+    src/ai.h
     src/anim_state_control.cpp
     src/anim_state_control.h
     src/audio.cpp
@@ -41,6 +43,10 @@ set(OPENTOMB_SRCS
     src/main_SDL.cpp
     src/mesh.c
     src/mesh.h
+    src/path.cpp
+    src/path.h
+    src/path_node.cpp
+    src/path_node.h
     src/physics.h
     src/physics_bullet.cpp
     src/render/bordered_texture_atlas.cpp

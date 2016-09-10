@@ -1812,6 +1812,8 @@
 		<Unit filename="shaders/text.vsh">
 			<Option target="&lt;{~None~}&gt;" />
 		</Unit>
+		<Unit filename="src/ai.cpp" />
+		<Unit filename="src/ai.h" />
 		<Unit filename="src/anim_state_control.cpp" />
 		<Unit filename="src/anim_state_control.h">
 			<Option target="&lt;{~None~}&gt;" />
@@ -1920,6 +1922,10 @@
 		<Unit filename="src/mesh.h">
 			<Option target="&lt;{~None~}&gt;" />
 		</Unit>
+		<Unit filename="src/path.cpp" />
+		<Unit filename="src/path.h" />
+		<Unit filename="src/path_node.cpp" />
+		<Unit filename="src/path_node.h" />
 		<Unit filename="src/physics.h" />
 		<Unit filename="src/physics_bullet.cpp" />
 		<Unit filename="src/render/bordered_texture_atlas.cpp" />

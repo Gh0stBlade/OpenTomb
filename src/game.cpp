@@ -33,6 +33,7 @@ extern "C" {
 #include "gameflow.h"
 #include "gui.h"
 #include "inventory.h"
+#include "ai.h"
 
 extern lua_State *engine_lua;
 
@@ -560,15 +561,17 @@ void Game_UpdateAllEntities(struct RedBlackNode_s *x)
 }
 
 
-void Game_UpdateAI()
+void Game_UpdateAI(struct RedBlackNode_s *x)
 {
-    entity_p ent = NULL;
-    //for(ALL CHARACTERS, EXCEPT PLAYER)
+    AI_UpdateEntity((entity_p)x->data);
+
+    if(x->left != NULL)
     {
-        if(ent)
-        {
-            // UPDATE AI commands
-        }
+        Game_UpdateAI(x->left);
+    }
+    if(x->right != NULL)
+    {
+        Game_UpdateAI(x->right);
     }
 }
 
@@ -667,7 +670,7 @@ void Game_Frame(float time)
     }
 
     Script_DoTasks(engine_lua, time);
-    Game_UpdateAI();
+
     if(is_character)
     {
         Entity_ProcessSector(player);
@@ -677,6 +680,7 @@ void Game_Frame(float time)
 
     if(is_entitytree)
     {
+        Game_UpdateAI(World_GetEntityTreeRoot());
         Game_LoopEntities(World_GetEntityTreeRoot());
     }
 
