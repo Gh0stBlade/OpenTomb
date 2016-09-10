@@ -7,10 +7,15 @@
 #include <cassert>
 
 ///TEMPORARY
-#define SINGLE_ROOM             (1)
-#define PATH_DISABLE_DIAGONAL   (0)
+#define SINGLE_ROOM             (0)
+#define PATH_DISABLE_DIAGONAL   (0) ///@FIXME Don't enable, illegal for portal sectors.
 #define PATH_STABILITY_DEBUG    (0)
 #define PATH_LOG_DETAILED_INFO  (0)
+
+///@DEADLOCK - Dead lock now occurs due to portals being traversed through.
+///Occurs because the search iterates through every single room/sector so if entities cannot reach Lara, search scale is every room in the level!
+///@TODO
+///Terminate path generation depending on how many rooms have currently been searched.
 
 /*
  * Default constructor, initialise CPathFinder here.
@@ -149,7 +154,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                 if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
                 {
 #if PATH_DISABLE_DIAGONAL
-                        continue;
+                        continue;///@FIXME illegal for portal sectors!
 #endif
                     neighbour_node->SetG(14);
                 }
@@ -319,8 +324,8 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
     room_sector_s* current_sector = current_node->GetSector();
     assert(current_sector);
 
-    room_s* room = current_sector->owner_room;
-    assert(room);
+    room_s* current_room = current_sector->owner_room;
+    assert(current_room);
 
     short neighbour_x = (x + current_sector->index_x);
     short neighbour_y = (y + current_sector->index_y);
@@ -328,15 +333,38 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
     //We don't want to process any out of bound sectors (this should never happen)
     if((neighbour_x >= 0) &&
         (neighbour_y >= 0) &&
-        (neighbour_x < room->sectors_x) &&
-        (neighbour_y < room->sectors_y))
+        (neighbour_x < current_room->sectors_x) &&
+        (neighbour_y < current_room->sectors_y))
     {
 
         //Generate a neighbour node with the newly found sector.
-        room_sector_s* neighbour_sector = World_GetRoomSector(room->id, neighbour_x, neighbour_y);
+        room_sector_s* neighbour_sector = World_GetRoomSector(current_room->id, neighbour_x, neighbour_y);
         CPathNode* node = this->AddNode();
         node->SetSector(neighbour_sector);
         return node;
+    }
+    else
+    {
+#if !SINGLE_ROOM
+        ///An out of bound room sector means we've possibly reached a portal sector (hence why the current neighbour is not in bounds of the current room)
+        ///Here we check this and add the sector through the portal so the search is continued.
+        room_s* neighbour_room = current_node->GetSector()->portal_to_room;
+        if(neighbour_room != NULL)
+        {
+            ///Here we iterate through all sectors in the neighbour room to find the sector that joins with the current portal
+            ///@OPTIMISE We can use World_GetSector... if we know the x,y indexs, should be calculated!
+            for(unsigned int i = 0; i < neighbour_room->sectors_count; i++)
+            {
+                room_sector_s* sector = &neighbour_room->sectors[i];
+                if(sector->portal_to_room == current_room)
+                {
+                    CPathNode* node = this->AddNode();
+                    node->SetSector(sector);
+                    return node;
+                }
+            }
+        }
+#endif
     }
 
     return NULL;
