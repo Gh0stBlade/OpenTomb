@@ -24,6 +24,7 @@
 
 void AI_UpdateEntity(entity_p entity)
 {
+    uint32_t meshType = 0;
     entity_p targetEntity = World_GetPlayer();
 
     ///@TODO Only supporting TR1
@@ -35,62 +36,87 @@ void AI_UpdateEntity(entity_p entity)
     //We can only continue if entity and targetEntity are valid entities.
     if((entity != NULL) && targetEntity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
     {
-        CPathFinder* pathFinder = new CPathFinder();
+        if(entity->self->room->id != targetEntity->self->room->id)
+        {
+            ///@TODO
+            ///1. check near by rooms, if target room is in the list. Get list of rooms to go trough to reach Lara.
+            return;
+        }
 
-        switch(entity->bf->animations.model->id)
+        meshType = entity->bf->animations.model->id;
+
+        switch(meshType)
         {
     case tr1Enemy::WOLF:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             AI_UpdateWolf(entity);
+            delete pathFinder;
         }
         break;
     case tr1Enemy::BEAR:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             AI_UpdateBear(entity);
+            delete pathFinder;
         }
         break;
     case tr1Enemy::BAT:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
             AI_UpdateBat(entity);
+            delete pathFinder;
         }
         break;
     case tr1Enemy::CROC:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             AI_UpdateCroc(entity);
+            delete pathFinder;
         }
         break;
     case tr1Enemy::CROC2:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::WATER);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
             AI_UpdateCroc2(entity);
+            delete pathFinder;
         }
         break;
     case tr1Enemy::LION_M:
     case tr1Enemy::LION_F:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            CPathFinder* pathFinder = NULL;
+            pathFinder = new CPathFinder();
+            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             AI_UpdateLion(entity);
+            delete pathFinder;
         }
         break;
     default:
         //Nothing
         break;
         }
-        delete pathFinder;
     }
 }
 
-void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags)
+///@PLACHOLDER
+void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, uint32_t flags)
 {
     btVector3 startPos, targetPos, resultPos;
     CPathNode* next_node = NULL;
@@ -104,6 +130,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
          next_node = path->m_resultPath[path->m_resultPath.size()-1];
     }
 
+
     if(next_node != NULL)
     {
         ///This is DISGRACEFUL ;)
@@ -115,29 +142,20 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         targetPos.setY(next_node->GetSector()->pos[1]);
         targetPos.setZ(next_node->GetSector()->floor);
 
-        resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
+        resultPos = lerp(startPos, targetPos, 0.87 * engine_frame_time);
         entity->transform[12] = resultPos.getX();
         entity->transform[13] = resultPos.getY();
         //entity->transform[14] = resultPos.getZ();
 
-        if((flags & AIType::GROUND) || (flags & AIType::WATER))///Ground entities stay on floor
+        if(flags & AIType::GROUND || flags & AIType::WATER)///Ground entities stay on floor
             entity->transform[14] = next_node->GetSector()->floor;
 
-        if(flags & AIType::FLYING)///@FIXME No! Move State!
+        if(flags & AIType::FLYING)
             entity->transform[14] = next_node->GetSector()->floor + 1024.0f;
 
         ///Get facing angle
-        CPathNode* parent_node = next_node->GetParentNode();
-        if(parent_node != NULL)
-        {
-            float dx = static_cast<float>((next_node->GetSector()->index_x - parent_node->GetSector()->index_x) * 90.0f);
-            float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
-            dx = dx *(M_PI / 180.0);
-            dy = dy *(M_PI / 180.0);
-            float ang = atan2(entity->angles[0] - dx, target_entity->angles[0] - dx);
-            entity->angles[0] = ang * (180/M_PI);
-
-        }
+       // float ang = atan2(target_entity->transform[13] - entity->transform[13], target_entity->transform[11] - entity->transform[11]);
+       // entity->angles[0] = ang * (180/M_PI);
 
         Entity_UpdateTransform(entity);
     }
@@ -151,21 +169,25 @@ void AI_UpdateWolf(entity_p entity)
         switch(entity->bf->animations.next_state)
         {
         case 8:
-            Entity_SetAnimation(entity, 0, 6, 0);///@FIXME illegal state change
+            entity->bf->animations.current_animation = 6;
+            entity->bf->animations.current_state = 5;
          break;
         case 3:
             {
                 ///ATTACK
                 if(World_GetPlayer()->current_sector == entity->current_sector)
                 {
-                    Entity_SetAnimation(entity, 0, 10, 0);
+                    entity->bf->animations.current_state = entity->bf->animations.next_state;
+                    entity->bf->animations.current_animation = 10;
                 }
             }
             break;
         default:
-            //Con_Printf("Unimplemented state: %i", entity->bf->animations.next_state);
+            Con_Printf("Unimplemented state: %i", entity->bf->animations.next_state);
             break;
         }
+
+
     }
 }
 

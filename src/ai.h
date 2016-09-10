@@ -11,7 +11,7 @@ void AI_UpdateBat(entity_p entity);
 void AI_UpdateCroc(entity_p entity);
 void AI_UpdateCroc2(entity_p entity);
 void AI_UpdateLion(entity_p entity);
-void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags);
+void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, uint32_t flags);
 
 enum tr1Enemy
 {
@@ -31,13 +31,11 @@ enum tr1Enemy
     LION_F
 };
 
-//Note: Multiple flags can be set for entities that fly/move on ground (TR1 Flying Mutants) and swim/move on ground (TR1 Rats)
 enum AIType
 {
-    GROUND  = (1 << 0),
-    WATER   = (1 << 1),
-    FLYING  = (1 << 2),
-    NUM_AI_TYPES
+    GROUND = (1 << 1),
+    WATER  = (1 << 2),
+    FLYING = (1 << 3)
 };
 
 #endif // AI_H
