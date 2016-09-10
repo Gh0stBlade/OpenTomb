@@ -200,6 +200,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
 
 CPathNode* CPathFinder::GetNextOpenNode()
 {
+#if 1
     if(this->m_openList.size() > 0)
     {
         int current_cost = this->m_openList[0]->GetFCost();
@@ -221,6 +222,16 @@ CPathNode* CPathFinder::GetNextOpenNode()
     {
         return NULL;
     }
+#else
+    if(this->m_openList.size() > 0)
+    {
+        return this->m_openList.at(0);
+    }
+    else
+    {
+        return NULL;
+    }
+#endif
 }
 
 /*
@@ -230,7 +241,35 @@ CPathNode* CPathFinder::GetNextOpenNode()
 void CPathFinder::AddToOpenList(CPathNode* node)
 {
     assert(node);
+#if 1
     this->m_openList.push_back(node);
+#else
+    if(this->m_openList.size() > 0)
+    {
+        unsigned int current_cost = this->m_openList[0]->GetFCost();
+        unsigned int current_index = 0;
+
+        if(node->GetFCost() <= current_cost)
+        {
+            this->m_openList.push_back(node);
+            return;
+        }
+
+        for(size_t i = 1; i < this->m_openList.size(); i++)
+        {
+            unsigned int next_cost = this->m_openList.at(i)->GetFCost();
+            if(next_cost >= current_cost)
+            {
+                this->m_openList.insert(this->m_openList.begin() + i, node);
+                return;
+            }
+        }
+    }
+    else
+    {
+        this->m_openList.push_back(node);
+    }
+#endif // 1
 }
 
 /*
