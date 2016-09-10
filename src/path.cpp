@@ -4,6 +4,7 @@
 #include "path.h"
 #include "world.h"
 
+#include <cmath>
 #include <cassert>
 
 ///TEMPORARY
@@ -84,6 +85,11 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
 
     while((this->m_openList.size() > 0))
     {
+        if(this->m_nodes.size() > (32*32))///@HACK
+        {
+            return;
+        }
+
         //Get the next node with lowest cost in the open list
         current_node = this->GetNextOpenNode();
         assert(current_node);
@@ -96,12 +102,6 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
         //If current_node's sector is the target sector we stop!
         if(current_node->GetSector() == target)
         {
-            //Entity is in current sector as player
-            if(current_node->GetParentNode() == NULL)
-            {
-                return;
-            }
-
             //We're ready to generate the final path
             this->GeneratePath(current_node);
             break;
@@ -147,20 +147,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                 //We need to check if this is a valid sector the entity is able to walk upon
                 if(!this->IsValidNeighbour(current_node, neighbour_node))
                 {
-                    continue;
-                }
-
-                ///We want to set different costs for vertical&horziontal, diagonal moves.
-                if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
-                {
-#if PATH_DISABLE_DIAGONAL
-                        continue;///@FIXME illegal for portal sectors!
-#endif
-                    neighbour_node->SetG(14);
-                }
-                else
-                {
-                    neighbour_node->SetG(10);
+                    continue;///@CHECK Should add to closed list?
                 }
 
                 if(neighbour_node != NULL)
@@ -206,7 +193,7 @@ CPathNode* CPathFinder::GetNextOpenNode()
         int current_cost = this->m_openList[0]->GetFCost();
         int current_index = 0;
 
-        for(size_t i = 0; i < this->m_openList.size(); i++)
+        for(size_t i = 1; i < this->m_openList.size(); i++)
         {
             unsigned int next_cost = this->m_openList.at(i)->GetFCost();
             if(next_cost < current_cost)
@@ -378,9 +365,20 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
 
         //Generate a neighbour node with the newly found sector.
         room_sector_s* neighbour_sector = World_GetRoomSector(current_room->id, neighbour_x, neighbour_y);
-        CPathNode* node = this->AddNode();
-        node->SetSector(neighbour_sector);
-        return node;
+        CPathNode* neighbour_node = this->AddNode();
+        neighbour_node->SetSector(neighbour_sector);
+
+        ///We want to set different costs for vertical&horziontal, diagonal moves.
+        if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
+        {
+            return NULL;
+        }
+        else
+        {
+            neighbour_node->SetG(10);
+        }
+
+        return neighbour_node;
     }
     else
     {
@@ -397,9 +395,9 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
                 room_sector_s* sector = &neighbour_room->sectors[i];
                 if(sector->portal_to_room == current_room)
                 {
-                    CPathNode* node = this->AddNode();
-                    node->SetSector(sector);
-                    return node;
+                    CPathNode* neighbour_node = this->AddNode();
+                    neighbour_node->SetSector(sector);
+                    return neighbour_node;
                 }
             }
         }
@@ -415,19 +413,17 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
 
 int CPathFinder::CalculateHeuristic(CPathNode* start, CPathNode* target)
 {
-    int sx, sy, tx, ty, dx, dy;
-
     if(start != NULL && target != NULL)
     {
         if(start->GetSector() != NULL && target->GetSector() != NULL)
         {
-            sx = start->GetSector()->index_x;
-            sy = start->GetSector()->index_y;
-            tx = target->GetSector()->index_x;
-            ty = target->GetSector()->index_y;
-            dx = tx - sx;
-            dy = ty - sy;
-            return int(sqrt((dx*dx)+(dy*dy)));
+            room_sector_s* start_sector = start->GetSector();
+            room_sector_s* target_sector = target->GetSector();
+            int dx = std::abs((start_sector->pos[0] - target_sector->pos[0]));
+            int dy = std::abs(start_sector->pos[1] - target_sector->pos[1]);
+
+            if(dx > dy) return 14 * dy + 10 * (dx - dy);
+            return (14 * dx) + (10 * (dy - dx));
         }
         else
         {
