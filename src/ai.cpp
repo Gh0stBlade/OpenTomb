@@ -41,35 +41,35 @@ void AI_UpdateEntity(entity_p entity)
         {
     case tr1Enemy::WOLF:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             ///AI_UpdateWolf(entity);
         }
         break;
     case tr1Enemy::BEAR:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             ///AI_UpdateBear(entity);
         }
         break;
     case tr1Enemy::BAT:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
             ///AI_UpdateBat(entity);
         }
         break;
     case tr1Enemy::CROC:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             ///AI_UpdateCroc(entity);
         }
         break;
     case tr1Enemy::CROC2:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::WATER);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
             ///AI_UpdateCroc2(entity);
         }
@@ -77,7 +77,7 @@ void AI_UpdateEntity(entity_p entity)
     case tr1Enemy::LION_M:
     case tr1Enemy::LION_F:
         {
-            pathFinder->InitialiseSearch(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
             ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
             ///AI_UpdateLion(entity);
         }
@@ -90,7 +90,7 @@ void AI_UpdateEntity(entity_p entity)
     }
 }
 
-void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, uint32_t flags)
+void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags)
 {
     btVector3 startPos, targetPos, resultPos;
     CPathNode* next_node = NULL;

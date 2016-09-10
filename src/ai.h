@@ -11,7 +11,7 @@ void AI_UpdateBat(entity_p entity);
 void AI_UpdateCroc(entity_p entity);
 void AI_UpdateCroc2(entity_p entity);
 void AI_UpdateLion(entity_p entity);
-void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, uint32_t flags);
+void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags);
 
 enum tr1Enemy
 {

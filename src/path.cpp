@@ -8,7 +8,7 @@
 
 ///TEMPORARY
 #define SINGLE_ROOM             (1)
-#define PATH_DISABLE_DIAGONAL   (1)
+#define PATH_DISABLE_DIAGONAL   (0)
 #define PATH_STABILITY_DEBUG    (0)
 #define PATH_LOG_DETAILED_INFO  (0)
 
@@ -49,12 +49,8 @@ CPathFinder::~CPathFinder()
 /*
  * This method starts a search from one room sector to the other
  */
-///@TODO Search multiple rooms.
-
-void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, uint32_t flags)
+void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags)
 {
-    CPathNode* start_node = NULL;
-    CPathNode* target_node = NULL;
     CPathNode* current_node = NULL;
     CPathNode* neighbour_node = NULL;
 
@@ -72,49 +68,43 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
     //Set flags so that we can customise the algorithm based on ai types
     this->m_flags |= flags;
 
-    //Initialise all the nodes
-    start_node = this->AddNode();
-    start_node->SetH(0);
-    start_node->SetG(0);
-    start_node->SetParentNode(NULL);
+    CPathNode* start_node = this->AddNode();
+    assert(start_node);
     start_node->SetSector(start);
     this->AddToOpenList(start_node);
 
-    target_node = this->AddNode();
+    CPathNode* target_node = this->AddNode();
+    assert(target_node);
     target_node->SetSector(target);
 
     while((this->m_openList.size() > 0))
     {
         //Get the next node with lowest cost in the open list
         current_node = this->GetNextOpenNode();
+        assert(current_node);
 
 #if PATH_LOG_DETAILED_INFO
         Sys_DebugLog(SYS_LOG_PATHFINDER, "PathFinder is at X: %i, Y: %i\n", current_node->GetSector()->index_x, current_node->GetSector()->index_y);
         Sys_DebugLog(SYS_LOG_PATHFINDER, "Target is at X: %i, Y: %i\n", target->index_x, target->index_y);
 #endif // PATH_LOG_DETAILED_INFO
 
-        if(current_node != NULL)
+        //If current_node's sector is the target sector we stop!
+        if(current_node->GetSector() == target)
         {
-            //If current_node's sector is the target sector we stop!
-            if(current_node->GetSector() == target)
+            //Entity is in current sector as player
+            if(current_node->GetParentNode() == NULL)
             {
-                //Entity is in current sector as player
-                if(current_node->GetParentNode() == NULL)
-                {
-                    return;
-                }
-
-                //We're ready to generate the final path
-                this->GeneratePath(current_node);
-
-                break;
+                return;
             }
 
-            //Remove the current node from the openList and add it to the closed list.
-            this->RemoveFromOpenList(current_node);
-            this->AddToClosedList(current_node);
+            //We're ready to generate the final path
+            this->GeneratePath(current_node);
+            break;
+        }
 
-
+        //Remove the current node from the openList and add it to the closed list.
+        this->RemoveFromOpenList(current_node);
+        this->AddToClosedList(current_node);
 ///1.
 ///SEARCHING OVERLAPS
 /// |-----------------------| (Y)
@@ -128,73 +118,70 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
 ///2.
 ///Diagonal sectors (0, 2, 5, 7) must cost us more.
 
-            //Iterate through neighbours of the current node, get the one with the lowest F cost
-            for(int16_t x = -1; x < 2; x++)
+        //Iterate through neighbours of the current node, get the one with the lowest F cost
+        for(short x = -1; x < 2; x++)
+        {
+            for(short y = -1; y < 2; y++)
             {
-                for(int16_t y = -1; y < 2; y++)
+                //This is the current node, we'll skip it as it's useless!
+                if(x == 0 && y == 0)
                 {
-                    //This is the current node, we'll skip it as it's useless!
-                    if(x == 0 && y == 0)
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    //Grab the neighbour node
-                    neighbour_node = this->GetNeighbourNode(x, y, current_node);
-
-                    if(neighbour_node == NULL)
-                    {
+                //Grab the neighbour node
+                neighbour_node = this->GetNeighbourNode(x, y, current_node);
+                if(neighbour_node == NULL)
+                {
 #if PATH_STABILITY_DEBUG
-                        Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder] - Neighbour is NULL!\n");
+                    Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder] - Neighbour is NULL!\n");
 #endif
-                        continue;
-                    }
+                    continue;
+                }
 
-                    //We need to check if this is a valid sector the entity is able to walk upon
-                    if(!this->IsValidNeighbour(current_node, neighbour_node))
-                    {
-                        continue;
-                    }
+                //We need to check if this is a valid sector the entity is able to walk upon
+                if(!this->IsValidNeighbour(current_node, neighbour_node))
+                {
+                    continue;
+                }
 
-                    ///We want to set different costs for vertical&horziontal, diagonal moves.
-                    if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
-                    {
+                ///We want to set different costs for vertical&horziontal, diagonal moves.
+                if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
+                {
 #if PATH_DISABLE_DIAGONAL
                         continue;
 #endif
-                        neighbour_node->SetG(14);
-                    }
-                    else
-                    {
-                        neighbour_node->SetG(10);
-                    }
+                    neighbour_node->SetG(14);
+                }
+                else
+                {
+                    neighbour_node->SetG(10);
+                }
 
-                    if(neighbour_node != NULL)
+                if(neighbour_node != NULL)
+                {
+                    //Get distance between our current_node and the neighbour_node
+                    int step_cost = current_node->GetG() + this->GetMovementCost(current_node, neighbour_node);
+                    if (step_cost < neighbour_node->GetG())
                     {
-                        //Get distance between our current_node and the neighbour_node
-                        int step_cost = current_node->GetG() + this->GetMovementCost(current_node, neighbour_node);
-
-                        if (step_cost < neighbour_node->GetG())
+                        if (this->IsInOpenList(neighbour_node))
                         {
-                            if (this->IsInOpenList(neighbour_node))
-                            {
-                                this->RemoveFromOpenList(neighbour_node);
-                            }
-
-                            if (this->IsInClosedList(neighbour_node))
-                            {
-                                this->RemoveFromClosedList(neighbour_node);
-                            }
+                            this->RemoveFromOpenList(neighbour_node);
                         }
 
-                        //This is a better route, add it to the open list so we may search it next!
-                        if (!this->IsInOpenList(neighbour_node) && !this->IsInClosedList(neighbour_node))
+                        if (this->IsInClosedList(neighbour_node))
                         {
-                            neighbour_node->SetG(step_cost);
-                            neighbour_node->SetH(this->CalculateHeuristic(neighbour_node, target_node));
-                            neighbour_node->SetParentNode(current_node);
-                            this->AddToOpenList(neighbour_node);
+                            this->RemoveFromClosedList(neighbour_node);
                         }
+                    }
+
+                    //This is a better route, add it to the open list so we may search it next!
+                    if (!this->IsInOpenList(neighbour_node) && !this->IsInClosedList(neighbour_node))
+                    {
+                        neighbour_node->SetG(step_cost);
+                        neighbour_node->SetH(this->CalculateHeuristic(neighbour_node, target_node));
+                        neighbour_node->SetParentNode(current_node);
+                        this->AddToOpenList(neighbour_node);
                     }
                 }
             }
@@ -206,19 +193,16 @@ void CPathFinder::InitialiseSearch(room_sector_s* start, room_sector_s* target, 
  * Returns node in Open List with lowest F Cost.
  */
 
- ///@OPTIMISE - Order by F-Cost.
 CPathNode* CPathFinder::GetNextOpenNode()
 {
-    int32_t current_cost, current_index;
-
     if(this->m_openList.size() > 0)
     {
-        current_cost = this->m_openList[0]->GetFCost();
-        current_index = 0;
+        int current_cost = this->m_openList[0]->GetFCost();
+        int current_index = 0;
 
         for(size_t i = 0; i < this->m_openList.size(); i++)
         {
-            uint32_t next_cost = this->m_openList.at(i)->GetFCost();
+            unsigned int next_cost = this->m_openList.at(i)->GetFCost();
             if(next_cost < current_cost)
             {
                 current_cost = next_cost;
@@ -294,41 +278,41 @@ void CPathFinder::RemoveFromClosedList(CPathNode* node)
  * Returns 1 if input node is in the open list
  */
 
-int CPathFinder::IsInOpenList(CPathNode* node)
+bool CPathFinder::IsInOpenList(CPathNode* node)
 {
     if(this->m_openList.size() > 0)
     {
-        for(uint32_t i = 0; i < this->m_openList.size(); i++)
+        for(size_t i = 0; i < this->m_openList.size(); i++)
         {
-            if(this->m_openList[i] == node) return 1;
+            if(this->m_openList[i]->GetSector() == node->GetSector()) return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 /*
  * Returns 1 if input node is in the closed list
  */
 
-int CPathFinder::IsInClosedList(CPathNode* node)
+bool CPathFinder::IsInClosedList(CPathNode* node)
 {
     if(this->m_closedList.size() > 0)
     {
-        for(uint32_t i = 0; i < this->m_closedList.size(); i++)
+        for(size_t i = 0; i < this->m_closedList.size(); i++)
         {
-            if(this->m_closedList[i] == node) return 1;
+            if(this->m_closedList[i]->GetSector() == node->GetSector()) return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 /*
  * Returns CPathNode* at x, y in node list.
  */
 
-CPathNode* CPathFinder::GetNeighbourNode(int16_t x, int16_t y, CPathNode* current_node)
+CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_node)
 {
     assert(current_node);
 
@@ -338,8 +322,8 @@ CPathNode* CPathFinder::GetNeighbourNode(int16_t x, int16_t y, CPathNode* curren
     room_s* room = current_sector->owner_room;
     assert(room);
 
-    int32_t neighbour_x = (x + current_sector->index_x);
-    int32_t neighbour_y = (y + current_sector->index_y);///@TODO int16_t
+    short neighbour_x = (x + current_sector->index_x);
+    short neighbour_y = (y + current_sector->index_y);
 
     //We don't want to process any out of bound sectors (this should never happen)
     if((neighbour_x >= 0) &&
@@ -348,16 +332,11 @@ CPathNode* CPathFinder::GetNeighbourNode(int16_t x, int16_t y, CPathNode* curren
         (neighbour_y < room->sectors_y))
     {
 
-        //Add the new neighbour to the openList
-
+        //Generate a neighbour node with the newly found sector.
         room_sector_s* neighbour_sector = World_GetRoomSector(room->id, neighbour_x, neighbour_y);
-        //Optimisation, prevents neighbour from being put in openList more than once.
-        if(!this->IsSectorInOpenList(neighbour_sector))
-        {
-            CPathNode* node = this->AddNode();
-            node->SetSector(neighbour_sector);
-            return node;
-        }
+        CPathNode* node = this->AddNode();
+        node->SetSector(neighbour_sector);
+        return node;
     }
 
     return NULL;
@@ -441,9 +420,9 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
  */
 ///@TODO - This should check sector heights and anything that would block a specific entity type from moving to a sector/node i.e (water, walls, next step too high..)
 ///@TODO - Ceiling checks, water checks.
-int CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node)
+bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node)
 {
-    int32_t diff;
+    int diff;
     room_sector_p current_sector, neighbour_sector, current_sector_below, neighbour_sector_below;
 
     if(current_node != NULL && neighbour_node != NULL)
@@ -459,12 +438,12 @@ int CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_
 
             if(current_sector_below != NULL)
             {
-                if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return 0;
+                if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
             }
 
             if(neighbour_sector_below != NULL)
             {
-                if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return 0;
+                if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
             }
 
             if(current_sector->floor != neighbour_sector->floor)
@@ -475,17 +454,17 @@ int CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_
                 //If the current node's floor+1step is higher
                 if(diff > 256 || diff < -256)
                 {
-                    return 0;
+                    return false;
                 }
             }
         }
     }
     else
     {
-        return 0;
+        return false;
     }
 
-    return 1;
+    return true;
 }
 
 /*
@@ -496,13 +475,21 @@ int CPathFinder::GetMovementCost(CPathNode* from_node, CPathNode* to_node)
 {
     int movement_cost = 0;
 
+#if 0
+    CPathNode* parent_node = from_node->GetParentNode();
+    if(parent_node != NULL)
+    {
+        movement_cost += parent_node->GetG();
+    }
+#endif
+
     if(from_node->GetSector()->index_x != to_node->GetSector()->index_x && from_node->GetSector()->index_y != to_node->GetSector()->index_y)
     {
-        movement_cost = 14;
+        movement_cost += 14;
     }
     else
     {
-        movement_cost = 10;
+        movement_cost += 10;
     }
 
     return movement_cost;
@@ -516,15 +503,4 @@ CPathNode* CPathFinder::AddNode()
 {
     this->m_nodes.emplace_back(new CPathNode());
     CPathNode* node = this->m_nodes[this->m_nodes.size()-1];
-}
-
-int CPathFinder::IsSectorInOpenList(room_sector_s* sector)
-{
-    if(this->m_openList.size() > 0)
-    {
-        for(uint32_t i = 0; i < this->m_openList.size(); i++)
-        {
-            if(this->m_openList[i]->GetSector() == sector) return 1;
-        }
-    }
 }

@@ -8,8 +8,8 @@ CPathNode::CPathNode()
 {
     this->m_g = 0;
     this->m_h = 0;
-    this->m_sector = NULL;
     this->m_parentNode = NULL;
+    this->m_sector = NULL;
 }
 
 /*
@@ -20,15 +20,15 @@ CPathNode::~CPathNode()
 {
     this->m_g = 0;
     this->m_h = 0;
-    this->m_sector = NULL;
     this->m_parentNode = NULL;
+    this->m_sector = NULL;
 }
 
 /*
- * Sets path node G cost
+ * Sets path node movement cost
  */
 
-void CPathNode::SetG(uint32_t g)
+void CPathNode::SetG(unsigned int g)
 {
     this->m_g = g;
 }
@@ -37,7 +37,7 @@ void CPathNode::SetG(uint32_t g)
  * Sets path node heuristic
  */
 
-void CPathNode::SetH(uint32_t h)
+void CPathNode::SetH(unsigned int h)
 {
     this->m_h = h;
 }
@@ -67,16 +67,16 @@ void CPathNode::SetSector(room_sector_s* sector)
  * Returns the F cost (g+h)
  */
 
-uint32_t CPathNode::GetFCost()
+unsigned int CPathNode::GetFCost()
 {
-    return this->m_g + this->m_h;
+    return (this->m_g + this->m_h);
 }
 
 /*
  * Returns the G cost
  */
 
-uint32_t CPathNode::GetG()
+unsigned int CPathNode::GetG()
 {
     return this->m_g;
 }
@@ -85,7 +85,7 @@ uint32_t CPathNode::GetG()
  * Returns the heuristic
  */
 
-uint32_t CPathNode::GetH()
+unsigned int CPathNode::GetH()
 {
     return this->m_h;
 }
