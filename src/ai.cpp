@@ -42,44 +42,44 @@ void AI_UpdateEntity(entity_p entity)
     case tr1Enemy::WOLF:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            ///AI_UpdateWolf(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateWolf(entity);
         }
         break;
     case tr1Enemy::BEAR:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            ///AI_UpdateBear(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateBear(entity);
         }
         break;
     case tr1Enemy::BAT:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
-            ///AI_UpdateBat(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
+            AI_UpdateBat(entity);
         }
         break;
     case tr1Enemy::CROC:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            ///AI_UpdateCroc(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateCroc(entity);
         }
         break;
     case tr1Enemy::CROC2:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
-            ///AI_UpdateCroc2(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
+            AI_UpdateCroc2(entity);
         }
         break;
     case tr1Enemy::LION_M:
     case tr1Enemy::LION_F:
         {
             pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            ///AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
-            ///AI_UpdateLion(entity);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateLion(entity);
         }
         break;
     default:
@@ -115,7 +115,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         targetPos.setY(next_node->GetSector()->pos[1]);
         targetPos.setZ(next_node->GetSector()->floor);
 
-        resultPos = lerp(startPos, targetPos, 0.87 * engine_frame_time);
+        resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
         entity->transform[12] = resultPos.getX();
         entity->transform[13] = resultPos.getY();
         //entity->transform[14] = resultPos.getZ();
@@ -127,8 +127,17 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
             entity->transform[14] = next_node->GetSector()->floor + 1024.0f;
 
         ///Get facing angle
-       // float ang = atan2(target_entity->transform[13] - entity->transform[13], target_entity->transform[11] - entity->transform[11]);
-       // entity->angles[0] = ang * (180/M_PI);
+        CPathNode* parent_node = next_node->GetParentNode();
+        if(parent_node != NULL)
+        {
+            float dx = static_cast<float>((next_node->GetSector()->index_x - parent_node->GetSector()->index_x) * 90.0f);
+            float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
+            dx = dx *(M_PI / 180.0);
+            dy = dy *(M_PI / 180.0);
+            float ang = atan2(entity->angles[0] - dx, target_entity->angles[0] - dx);
+            entity->angles[0] = ang * (180/M_PI);
+
+        }
 
         Entity_UpdateTransform(entity);
     }
@@ -142,21 +151,19 @@ void AI_UpdateWolf(entity_p entity)
         switch(entity->bf->animations.next_state)
         {
         case 8:
-            entity->bf->animations.current_animation = 6;
-            entity->bf->animations.current_state = 5;
+            Entity_SetAnimation(entity, 0, 6, 0);///@FIXME illegal state change
          break;
         case 3:
             {
                 ///ATTACK
                 if(World_GetPlayer()->current_sector == entity->current_sector)
                 {
-                    entity->bf->animations.current_state = entity->bf->animations.next_state;
-                    entity->bf->animations.current_animation = 10;
+                    Entity_SetAnimation(entity, 0, 10, 0);
                 }
             }
             break;
         default:
-            Con_Printf("Unimplemented state: %i", entity->bf->animations.next_state);
+            //Con_Printf("Unimplemented state: %i", entity->bf->animations.next_state);
             break;
         }
     }
