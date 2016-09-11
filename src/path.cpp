@@ -496,11 +496,19 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
         }
     }
 
-    if(!(this->m_flags & AIType::WATER))
+    if((this->m_flags & AIType::FLYING))
+    {
+        if(neighbour_sector != NULL)
+        {
+            if(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
+        }
+    }
+
+    if((this->m_flags & AIType::GROUND))
     {
         room_sector_s* current_sector_below = current_sector->sector_below;
         room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
-
+#if 0
         if(current_sector_below != NULL)
         {
             if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
@@ -510,9 +518,15 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
         {
             if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
         }
+#else
+        if(neighbour_sector_below != NULL)
+        {
+            return false;
+        }
+#endif
 
         ///This checks floor heights so ground entities don't walk on certain slopes.
-        if(current_sector->floor != neighbour_sector->floor && (this->m_flags & AIType::GROUND))
+        if(current_sector->floor != neighbour_sector->floor)
         {
             //Height difference
             int diff = current_sector->floor - neighbour_sector->floor;///@FIXME Illegal height check

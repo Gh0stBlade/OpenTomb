@@ -39,6 +39,16 @@ void AI_UpdateEntity(entity_p entity)
     {
         CPathFinder* pathFinder = new CPathFinder();
 
+        ///@FIXME Only search nearby rooms for now
+        if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, targetEntity->current_sector->owner_room)))
+        {
+            return;
+        }
+        else
+        {
+            ///@TODO gen escape path!
+        }
+
         switch(entity->bf->animations.model->id)
         {
     case tr1Enemy::WOLF:
@@ -71,9 +81,16 @@ void AI_UpdateEntity(entity_p entity)
         break;
     case tr1Enemy::CROC2:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
-            AI_UpdateCroc2(entity);
+            if(targetEntity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
+            {
+                pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
+                AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
+                AI_UpdateCroc2(entity);
+            }
+            else
+            {
+                ///@TODO Gen escape path!
+            }
         }
         break;
     case tr1Enemy::LION_M:
@@ -100,9 +117,16 @@ void AI_UpdateEntity(entity_p entity)
         break;
     case tr1Enemy::RAT2:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
-            AI_UpdateRat2(entity);
+            if(targetEntity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
+            {
+                pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
+                AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
+                AI_UpdateRat2(entity);
+            }
+            else
+            {
+                ///@TODO Gen escape path!
+            }
         }
         break;
     case tr1Enemy::TREX:
@@ -153,7 +177,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
 
     if((flags & AIType::FLYING))///@FIXME No! Move state!
     {
-        targetPos.setZ(next_node->GetSector()->ceiling - 512.0f);
+        targetPos.setZ(next_node->GetSector()->floor + 512.0f);
     }
 
     resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
