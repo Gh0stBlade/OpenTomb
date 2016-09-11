@@ -34,7 +34,7 @@ private:
     void                        RemoveFromClosedList(CPathNode* node);
     bool                        IsInOpenList(CPathNode* node);
     bool                        IsInClosedList(CPathNode* node);
-    CPathNode*                  GetNeighbourNode(short x, short y, CPathNode* current_node);
+    CPathNode*                  GetNeighbourNode(short x, short y, short z, CPathNode* current_node);
     int                         CalculateHeuristic(CPathNode* start, CPathNode* target);
     void                        GeneratePath(CPathNode* end_node);
     bool                        IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node);

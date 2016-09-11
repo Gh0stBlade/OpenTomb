@@ -116,16 +116,22 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
     targetPos.setY(next_node->GetSector()->pos[1]);
     targetPos.setZ(next_node->GetSector()->floor);
 
+    if((flags & AIType::FLYING))///@FIXME No! Move state!
+    {
+        targetPos.setZ(next_node->GetSector()->floor + 512.0f);
+    }
+
     resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
     entity->transform[12] = resultPos.getX();
     entity->transform[13] = resultPos.getY();
-    //entity->transform[14] = resultPos.getZ();
+
+    if((flags & AIType::FLYING))///@FIXME No! Move state!
+    {
+        entity->transform[14] = resultPos.getZ();
+    }
 
     if((flags & AIType::GROUND) || (flags & AIType::WATER))///Ground entities stay on floor
         entity->transform[14] = next_node->GetSector()->floor;
-
-    if(flags & AIType::FLYING)///@FIXME No! Move State!
-        entity->transform[14] = next_node->GetSector()->floor + 1024.0f;
 
     CPathNode* parent_node = next_node->GetParentNode();
     if(parent_node != NULL)

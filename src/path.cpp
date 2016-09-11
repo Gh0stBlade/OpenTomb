@@ -121,52 +121,55 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
         {
             for(short y = -1; y < 2; y++)
             {
-                //This is the current node, we'll skip it as it's useless!
-                if(x == 0 && y == 0)
+                for(short z = -1; z < 2; z++)
                 {
-                    continue;
-                }
-
-                //Grab the neighbour node
-                CPathNode* neighbour_node = this->GetNeighbourNode(x, y, current_node);
-                if(neighbour_node == NULL)
-                {
-#if PATH_STABILITY_DEBUG
-                    Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder] - Neighbour is NULL!\n");
-#endif
-                    continue;
-                }
-
-                //We need to check if this is a valid sector the entity is able to walk upon
-                if(!this->IsValidNeighbour(current_node, neighbour_node))
-                {
-                    continue;///@CHECK Should add to closed list?
-                }
-
-                if(neighbour_node != NULL)
-                {
-                    //Get distance between our current_node and the neighbour_node
-                    int step_cost = current_node->GetG() + this->GetMovementCost(current_node, neighbour_node);
-                    if (step_cost < neighbour_node->GetG())
+                    //This is the current node, we'll skip it as it's useless!
+                    if(x == 0 && y == 0)
                     {
-                        if (this->IsInOpenList(neighbour_node))
-                        {
-                            this->RemoveFromOpenList(neighbour_node);
-                        }
-
-                        if (this->IsInClosedList(neighbour_node))
-                        {
-                            this->RemoveFromClosedList(neighbour_node);
-                        }
+                        continue;
                     }
 
-                    //This is a better route, add it to the open list so we may search it next!
-                    if (!this->IsInOpenList(neighbour_node) && !this->IsInClosedList(neighbour_node))
+                    //Grab the neighbour node
+                    CPathNode* neighbour_node = this->GetNeighbourNode(x, y, z, current_node);
+                    if(neighbour_node == NULL)
                     {
-                        neighbour_node->SetG(step_cost);
-                        neighbour_node->SetH(this->CalculateHeuristic(neighbour_node, target_node));
-                        neighbour_node->SetParentNode(current_node);
-                        this->AddToOpenList(neighbour_node);
+#if PATH_STABILITY_DEBUG
+                        Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder] - Neighbour is NULL!\n");
+#endif
+                        continue;
+                    }
+
+                    //We need to check if this is a valid sector the entity is able to walk upon
+                    if(!this->IsValidNeighbour(current_node, neighbour_node))
+                    {
+                        continue;///@CHECK Should add to closed list?
+                    }
+
+                    if(neighbour_node != NULL)
+                    {
+                        //Get distance between our current_node and the neighbour_node
+                        int step_cost = current_node->GetG() + this->GetMovementCost(current_node, neighbour_node);
+                        if (step_cost < neighbour_node->GetG())
+                        {
+                            if (this->IsInOpenList(neighbour_node))
+                            {
+                                this->RemoveFromOpenList(neighbour_node);
+                            }
+
+                            if (this->IsInClosedList(neighbour_node))
+                            {
+                                this->RemoveFromClosedList(neighbour_node);
+                            }
+                        }
+
+                        //This is a better route, add it to the open list so we may search it next!
+                        if (!this->IsInOpenList(neighbour_node) && !this->IsInClosedList(neighbour_node))
+                        {
+                            neighbour_node->SetG(step_cost);
+                            neighbour_node->SetH(this->CalculateHeuristic(neighbour_node, target_node));
+                            neighbour_node->SetParentNode(current_node);
+                            this->AddToOpenList(neighbour_node);
+                        }
                     }
                 }
             }
@@ -336,8 +339,14 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
  * Returns CPathNode* at x, y in node list.
  */
 
-CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_node)
+CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)
 {
+    //Invalid only flying/swimming entities should check above/below sectors
+    if(!this->m_flags & AIType::FLYING || !this->m_flags & AIType::WATER  && z != 0)
+    {
+        return NULL;
+    }
+
     assert(current_node);
 
     room_sector_s* current_sector = current_node->GetSector();
@@ -348,6 +357,24 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
 
     short neighbour_x = (x + current_sector->index_x);
     short neighbour_y = (y + current_sector->index_y);
+
+    ///Room override for flying entities
+    if(z == -1)
+    {
+        room_sector_s* sector_below = current_sector->sector_below;
+        if(sector_below)
+        {
+            current_room = sector_below->owner_room;
+        }
+    }
+    else if(z == 1)
+    {
+        room_sector_s* sector_above = current_sector->sector_above;
+        if(sector_above)
+        {
+            current_room = sector_above->owner_room;
+        }
+    }
 
     //We don't want to process any out of bound sectors (this should never happen)
     if((neighbour_x >= 0) &&
@@ -475,7 +502,8 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
             if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
         }
 
-        if(current_sector->floor != neighbour_sector->floor)
+        ///This checks floor heights so ground entities don't walk on certain slopes.
+        if(current_sector->floor != neighbour_sector->floor && (this->m_flags & AIType::GROUND))
         {
             //Height difference
             int diff = current_sector->floor - neighbour_sector->floor;///@FIXME Illegal height check
@@ -486,10 +514,6 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
                 return false;
             }
         }
-    }
-    else
-    {
-        return false;
     }
 
     return true;
