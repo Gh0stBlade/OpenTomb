@@ -342,7 +342,7 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
 CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)
 {
     //Invalid only flying/swimming entities should check above/below sectors
-    if(!this->m_flags & AIType::FLYING || !this->m_flags & AIType::WATER  && z != 0)
+    if(!this->m_flags & AIType::FLYING || !this->m_flags & AIType::WATER  && z != 0)///@CHECK no ground/water enemies should too!
     {
         return NULL;
     }
@@ -486,6 +486,15 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
 
     assert(current_sector);
     assert(neighbour_sector);
+
+    ///Water entities can only move through rooms that have water flag set
+    if(this->m_flags & AIType::WATER)
+    {
+        if(!(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER))
+        {
+            return false;
+        }
+    }
 
     if(!(this->m_flags & AIType::WATER))
     {

@@ -11,6 +11,11 @@ void AI_UpdateBat(entity_p entity);
 void AI_UpdateCroc(entity_p entity);
 void AI_UpdateCroc2(entity_p entity);
 void AI_UpdateLion(entity_p entity);
+void AI_UpdateGorilla(entity_p entity);
+void AI_UpdateRat(entity_p entity);
+void AI_UpdateRat2(entity_p entity);
+void AI_UpdateTrex(entity_p entity);
+void AI_UpdateRaptor(entity_p entity);
 void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags);
 
 enum tr1Enemy
@@ -28,7 +33,13 @@ enum tr1Enemy
     CROC,//LAND
     CROC2,//SWIM
     LION_M,
-    LION_F
+    LION_F,
+    UNUSED_14,
+    GORILLA,
+    RAT,//LAND
+    RAT2,//SWIM
+    TREX,
+    RAPTOR
 };
 
 //Note: Multiple flags can be set for entities that fly/move on ground (TR1 Flying Mutants) and swim/move on ground (TR1 Rats)

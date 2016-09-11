@@ -84,6 +84,41 @@ void AI_UpdateEntity(entity_p entity)
             AI_UpdateLion(entity);
         }
         break;
+    case tr1Enemy::GORILLA:
+        {
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateGorilla(entity);
+        }
+        break;
+    case tr1Enemy::RAT:
+        {
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
+            AI_UpdateRat(entity);
+        }
+        break;
+    case tr1Enemy::RAT2:
+        {
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
+            AI_UpdateRat2(entity);
+        }
+        break;
+    case tr1Enemy::TREX:
+        {
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateTrex(entity);
+        }
+        break;
+    case tr1Enemy::RAPTOR:
+        {
+            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            AI_UpdateRaptor(entity);
+        }
+        break;
     default:
         //Nothing
         break;
@@ -118,7 +153,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
 
     if((flags & AIType::FLYING))///@FIXME No! Move state!
     {
-        targetPos.setZ(next_node->GetSector()->floor + 512.0f);
+        targetPos.setZ(next_node->GetSector()->ceiling - 512.0f);
     }
 
     resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
@@ -177,7 +212,14 @@ void AI_UpdateBear(entity_p entity)
 {
     if(entity != NULL)
     {
-
+        switch(entity->bf->animations.next_state)
+        {
+        case 3:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 3, 0);
+            break;
+        }
     }
 }
 
@@ -186,7 +228,14 @@ void AI_UpdateBat(entity_p entity)
 {
     if(entity != NULL)
     {
-
+        switch(entity->bf->animations.next_state)
+        {
+        case 2:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
     }
 }
 
@@ -195,6 +244,14 @@ void AI_UpdateCroc(entity_p entity)
 {
     if(entity != NULL)
     {
+        switch(entity->bf->animations.next_state)
+        {
+        case 3:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 3, 0);
+            break;
+        }
 
     }
 }
@@ -204,7 +261,14 @@ void AI_UpdateCroc2(entity_p entity)
 {
     if(entity != NULL)
     {
-
+        switch(entity->bf->animations.next_state)
+        {
+        case 2:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
     }
 }
 
@@ -213,6 +277,97 @@ void AI_UpdateLion(entity_p entity)
 {
     if(entity != NULL)
     {
-
+        switch(entity->bf->animations.next_state)
+        {
+        case 5:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 5, 0);
+            break;
+        }
     }
 }
+
+///@TODO
+void AI_UpdateGorilla(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 7:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 7, 0);
+            break;
+
+        }
+    }
+}
+
+///@TODO
+void AI_UpdateRat(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 3:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 3, 0);
+            break;
+        }
+    }
+}
+
+void AI_UpdateRat2(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 2:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
+    }
+}
+
+///@TODO
+void AI_UpdateTrex(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 2:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
+    }
+}
+
+///@TODO
+void AI_UpdateRaptor(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 2:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
+    }
+}
+
+
+
+
