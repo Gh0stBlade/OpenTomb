@@ -18,6 +18,8 @@
 #include <BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h>
 #include <BulletCollision/NarrowPhaseCollision/btRaycastCallback.h>
 
+#include <cassert>
+
 /*
  * Updates specific entity
  */
@@ -92,53 +94,48 @@ void AI_UpdateEntity(entity_p entity)
 
 void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, unsigned char flags)
 {
-    btVector3 startPos, targetPos, resultPos;
-    CPathNode* next_node = NULL;
+    assert(entity);
+    assert(target_entity);
+    assert(path);
 
-    if(entity == NULL) return;
-    if(path == NULL) return;
-    if(path->m_resultPath.size() <= 0) return;
-
-    if(path->m_resultPath.size() >= 1)
+    std::vector<CPathNode*> resultPath = path->GetResultPath();
+    if(resultPath.size() <= 0)
     {
-         next_node = path->m_resultPath[path->m_resultPath.size()-1];
+        return;
     }
 
-    if(next_node != NULL)
+    CPathNode* next_node = resultPath[resultPath.size()-1];
+    btVector3 startPos, targetPos, resultPos;
+
+    ///This is DISGRACEFUL ;)
+    startPos.setX(entity->transform[12]);
+    startPos.setY(entity->transform[13]);
+    startPos.setZ(entity->transform[14]);
+
+    targetPos.setX(next_node->GetSector()->pos[0]);
+    targetPos.setY(next_node->GetSector()->pos[1]);
+    targetPos.setZ(next_node->GetSector()->floor);
+
+    resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
+    entity->transform[12] = resultPos.getX();
+    entity->transform[13] = resultPos.getY();
+    //entity->transform[14] = resultPos.getZ();
+
+    if((flags & AIType::GROUND) || (flags & AIType::WATER))///Ground entities stay on floor
+        entity->transform[14] = next_node->GetSector()->floor;
+
+    if(flags & AIType::FLYING)///@FIXME No! Move State!
+        entity->transform[14] = next_node->GetSector()->floor + 1024.0f;
+
+    CPathNode* parent_node = next_node->GetParentNode();
+    if(parent_node != NULL)
     {
-        ///This is DISGRACEFUL ;)
-        startPos.setX(entity->transform[12]);
-        startPos.setY(entity->transform[13]);
-        startPos.setZ(entity->transform[14]);
-
-        targetPos.setX(next_node->GetSector()->pos[0]);
-        targetPos.setY(next_node->GetSector()->pos[1]);
-        targetPos.setZ(next_node->GetSector()->floor);
-
-        resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
-        entity->transform[12] = resultPos.getX();
-        entity->transform[13] = resultPos.getY();
-        //entity->transform[14] = resultPos.getZ();
-
-        if((flags & AIType::GROUND) || (flags & AIType::WATER))///Ground entities stay on floor
-            entity->transform[14] = next_node->GetSector()->floor;
-
-        if(flags & AIType::FLYING)///@FIXME No! Move State!
-            entity->transform[14] = next_node->GetSector()->floor + 1024.0f;
-
-        ///Get facing angle
-        CPathNode* parent_node = next_node->GetParentNode();
-        if(parent_node != NULL)
-        {
-            float dx = static_cast<float>((next_node->GetSector()->index_x - parent_node->GetSector()->index_x) * 90.0f);
-            float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
-            dx = dx *(M_PI / 180.0);
-            dy = dy *(M_PI / 180.0);
-            float ang = atan2(entity->angles[0] - dx, target_entity->angles[0] - dx);
-            entity->angles[0] = ang * (180/M_PI);
-
-        }
-
+        float dx = static_cast<float>((next_node->GetSector()->index_x - parent_node->GetSector()->index_x) * 90.0f);
+        float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
+        dx = dx *(M_PI / 180.0);
+        dy = dy *(M_PI / 180.0);
+        float ang = atan2(entity->angles[0] - dx, target_entity->angles[0] - dx);
+        entity->angles[0] = ang * (180/M_PI);
         Entity_UpdateTransform(entity);
     }
 }

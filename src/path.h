@@ -18,18 +18,16 @@ public:
     ~CPathFinder();
 
     void                        FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags);
-    CPathNode*                  GetNextOpenNode();
-
-    ///@TODO private
-    std::vector<CPathNode*>     m_resultPath;            ///Final result path
+    std::vector<CPathNode*>     GetResultPath();         ///Returns the result path
 
 private:
-
-    std::vector<CPathNode*>     m_nodes;                 ///List of all nodes
+    std::vector<CPathNode*>     m_resultPath;            ///Final result path is stored here if found.
+    std::vector<CPathNode*>     m_nodes;                 ///List of all nodes (open and closed)
     std::vector<CPathNode*>     m_openList;              ///Nodes which have to be searched
     std::vector<CPathNode*>     m_closedList;            ///Nodes which have been searched and are now closed
-    unsigned char               m_flags;
+    unsigned char               m_flags;                 ///Flags telling us what type of AI we need to create the path for.
 
+    CPathNode*                  GetNextOpenNode();
     void                        AddToOpenList(CPathNode* node);
     void                        AddToClosedList(CPathNode* node);
     void                        RemoveFromOpenList(CPathNode* node);

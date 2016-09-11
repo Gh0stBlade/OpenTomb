@@ -12,11 +12,7 @@
 #define PATH_DISABLE_DIAGONAL   (0) ///@FIXME Don't enable, illegal for portal sectors.
 #define PATH_STABILITY_DEBUG    (0)
 #define PATH_LOG_DETAILED_INFO  (0)
-
-///@DEADLOCK - Dead lock now occurs due to portals being traversed through.
-///Occurs because the search iterates through every single room/sector so if entities cannot reach Lara, search scale is every room in the level!
-///@TODO
-///Terminate path generation depending on how many rooms have currently been searched.
+#define PATH_DEBUG_DRAW         (1)
 
 /*
  * Default constructor, initialise CPathFinder here.
@@ -57,9 +53,6 @@ CPathFinder::~CPathFinder()
  */
 void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags)
 {
-    CPathNode* current_node = NULL;
-    CPathNode* neighbour_node = NULL;
-
     //Impossible to continue if either start/target sector pointers are NULL
     assert(start);
     assert(target);
@@ -91,7 +84,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
         }
 
         //Get the next node with lowest cost in the open list
-        current_node = this->GetNextOpenNode();
+        CPathNode* current_node = this->GetNextOpenNode();
         assert(current_node);
 
 #if PATH_LOG_DETAILED_INFO
@@ -135,7 +128,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                 }
 
                 //Grab the neighbour node
-                neighbour_node = this->GetNeighbourNode(x, y, current_node);
+                CPathNode* neighbour_node = this->GetNeighbourNode(x, y, current_node);
                 if(neighbour_node == NULL)
                 {
 #if PATH_STABILITY_DEBUG
@@ -371,7 +364,7 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
         ///We want to set different costs for vertical&horziontal, diagonal moves.
         if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
         {
-            return NULL;
+            return NULL;///@TODO move to IsValidSector
         }
         else
         {
@@ -413,29 +406,20 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, CPathNode* current_no
 
 int CPathFinder::CalculateHeuristic(CPathNode* start, CPathNode* target)
 {
-    if(start != NULL && target != NULL)
-    {
-        if(start->GetSector() != NULL && target->GetSector() != NULL)
-        {
-            room_sector_s* start_sector = start->GetSector();
-            room_sector_s* target_sector = target->GetSector();
-            int dx = std::abs((start_sector->pos[0] - target_sector->pos[0]));
-            int dy = std::abs(start_sector->pos[1] - target_sector->pos[1]);
+    assert(start);
+    assert(target);
 
-            if(dx > dy) return 14 * dy + 10 * (dx - dy);
-            return (14 * dx) + (10 * (dy - dx));
-        }
-        else
-        {
-            Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder::CalculateHeuristic] - (Warning) - Start or Target sector is NULL!\n");
-        }
-    }
-    else
-    {
-        Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder::CalculateHeuristic] - (Warning) - Start or Target NODE is NULL!\n");
-    }
+    room_sector_s* start_sector = start->GetSector();
+    room_sector_s* target_sector = target->GetSector();
 
-    return 0;
+    assert(start_sector);
+    assert(target_sector);
+
+    int dx = std::abs((start_sector->pos[0] - target_sector->pos[0]));
+    int dy = std::abs(start_sector->pos[1] - target_sector->pos[1]);
+
+    if(dx > dy) return 14 * dy + 10 * (dx - dy);
+    return (14 * dx) + (10 * (dy - dx));
 }
 
 /*
@@ -444,37 +428,19 @@ int CPathFinder::CalculateHeuristic(CPathNode* start, CPathNode* target)
 
 void CPathFinder::GeneratePath(CPathNode* end_node)
 {
-    this->m_resultPath.clear();
-
-    while(end_node->GetParentNode() != NULL)
+#if PATH_DEBUG_DRAW
+    renderer.debugDrawer->SetColor(0.0, 1.0, 0.0);
+#endif
+    while(end_node->GetParentNode() != NULL)///@FIXME should be end_node?
     {
+#if PATH_DEBUG_DRAW
+        if(end_node->GetSector() != NULL)
+        {
+            renderer.debugDrawer->DrawSectorDebugLines(end_node->GetSector());
+        }
+#endif
         this->m_resultPath.push_back(end_node);
         end_node = end_node->GetParentNode();
-    }
-
-    for(size_t i = this->m_resultPath.size(); i-- > 0;)
-    {
-        if(this->m_resultPath[i]->GetSector() == NULL)
-        {
-            Sys_DebugLog(SYS_LOG_PATHFINDER, "Error during path gen, GetSector() returned NULL!\n");
-            continue;
-        }
-
-        //Target will be marked red
-        if(i == 0)
-        {
-            renderer.debugDrawer->SetColor(1.0, 0.0, 0.0);
-        }
-        else if(i == this->m_resultPath.size()-1)
-        {
-            renderer.debugDrawer->SetColor(0.0, 0.0, 1.0);
-        }
-        else
-        {
-            renderer.debugDrawer->SetColor(0.0, 1.0, 0.0);
-        }
-
-        renderer.debugDrawer->DrawSectorDebugLines(this->m_resultPath[i]->GetSector());
     }
 }
 
@@ -485,40 +451,39 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
 ///@TODO - Ceiling checks, water checks.
 bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node)
 {
-    int diff;
-    room_sector_p current_sector, neighbour_sector, current_sector_below, neighbour_sector_below;
+    assert(current_node);
+    assert(neighbour_node);
 
-    if(current_node != NULL && neighbour_node != NULL)
+    room_sector_s* current_sector = current_node->GetSector();
+    room_sector_s* neighbour_sector = neighbour_node->GetSector();
+
+    assert(current_sector);
+    assert(neighbour_sector);
+
+    if(!(this->m_flags & AIType::WATER))
     {
-        current_sector = current_node->GetSector();
-        neighbour_sector = neighbour_node->GetSector();
+        room_sector_s* current_sector_below = current_sector->sector_below;
+        room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
 
-        if(current_sector  != NULL && neighbour_sector != NULL && !(this->m_flags & AIType::WATER))
+        if(current_sector_below != NULL)
         {
-            ///@FIXME find better way of doing this
-            current_sector_below = current_sector->sector_below;
-            neighbour_sector_below = neighbour_sector->sector_below;
+            if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
+        }
 
-            if(current_sector_below != NULL)
-            {
-                if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
-            }
+        if(neighbour_sector_below != NULL)
+        {
+            if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
+        }
 
-            if(neighbour_sector_below != NULL)
-            {
-                if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
-            }
-
-            if(current_sector->floor != neighbour_sector->floor)
-            {
+        if(current_sector->floor != neighbour_sector->floor)
+        {
             //Height difference
-            diff = current_sector->floor - neighbour_sector->floor;
+            int diff = current_sector->floor - neighbour_sector->floor;///@FIXME Illegal height check
 
-                //If the current node's floor+1step is higher
-                if(diff > 256 || diff < -256)
-                {
-                    return false;
-                }
+            //If the current node's floor+1step is higher
+            if(diff > 256 || diff < -256)
+            {
+                return false;
             }
         }
     }
@@ -566,4 +531,9 @@ CPathNode* CPathFinder::AddNode()
 {
     this->m_nodes.emplace_back(new CPathNode());
     CPathNode* node = this->m_nodes[this->m_nodes.size()-1];
+}
+
+std::vector<CPathNode*> CPathFinder::GetResultPath()
+{
+    return this->m_resultPath;
 }
