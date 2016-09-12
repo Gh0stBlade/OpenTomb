@@ -9,7 +9,6 @@
 
 ///TEMPORARY
 #define SINGLE_ROOM             (0)
-#define PATH_DISABLE_DIAGONAL   (0) ///@FIXME Don't enable, illegal for portal sectors.
 #define PATH_STABILITY_DEBUG    (0)
 #define PATH_LOG_DETAILED_INFO  (0)
 #define PATH_DEBUG_DRAW         (1)
@@ -78,11 +77,6 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
 
     while((this->m_openList.size() > 0))
     {
-        if(this->m_nodes.size() > (32*32))///@HACK
-        {
-            return;
-        }
-
         //Get the next node with lowest cost in the open list
         CPathNode* current_node = this->GetNextOpenNode();
         assert(current_node);
@@ -124,7 +118,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                 for(short z = -1; z < 2; z++)
                 {
                     //This is the current node, we'll skip it as it's useless!
-                    if(x == 0 && y == 0)
+                    if(x == 0 && y == 0 && z == 0)
                     {
                         continue;
                     }
@@ -142,7 +136,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                     //We need to check if this is a valid sector the entity is able to walk upon
                     if(!this->IsValidNeighbour(current_node, neighbour_node))
                     {
-                        continue;///@CHECK Should add to closed list?
+                        continue;///@OPTIMISE Add invalid neighbour to closed list?
                     }
 
                     if(neighbour_node != NULL)
@@ -341,12 +335,13 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
 
 CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)
 {
+#if 0
     //Invalid only flying/swimming entities should check above/below sectors
     if(!this->m_flags & AIType::FLYING || !this->m_flags & AIType::WATER  && z != 0)///@CHECK no ground/water enemies should too!
     {
         return NULL;
     }
-
+#endif
     assert(current_node);
 
     room_sector_s* current_sector = current_node->GetSector();
@@ -388,14 +383,9 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         CPathNode* neighbour_node = this->AddNode();
         neighbour_node->SetSector(neighbour_sector);
 
-        ///We want to set different costs for vertical&horziontal, diagonal moves.
-        if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y)
+        if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y && z == 0)
         {
-            return NULL;///@TODO move to IsValidSector
-        }
-        else
-        {
-            neighbour_node->SetG(10);
+            return NULL;
         }
 
         return neighbour_node;
@@ -415,6 +405,10 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
                 room_sector_s* sector = &neighbour_room->sectors[i];
                 if(sector->portal_to_room == current_room)
                 {
+                    ///if(this->m_flags & AIType::GROUND) ///@FIXME ground entities move diagonal around portals!
+                    ///{
+
+                    ///}
                     CPathNode* neighbour_node = this->AddNode();
                     neighbour_node->SetSector(sector);
                     return neighbour_node;
@@ -529,10 +523,11 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
         if(current_sector->floor != neighbour_sector->floor)
         {
             //Height difference
-            int diff = current_sector->floor - neighbour_sector->floor;///@FIXME Illegal height check
-
+            int current_sector_num_steps = (current_sector->floor / 256);///@FIXME Illegal height check
+            int neighbour_sector_num_steps = (neighbour_sector->floor / 256);///@FIXME Illegal height check
+            int step = current_sector_num_steps - neighbour_sector_num_steps;
             //If the current node's floor+1step is higher
-            if(diff > 256 || diff < -256)
+            if(step > 1 || step < -1)
             {
                 return false;
             }

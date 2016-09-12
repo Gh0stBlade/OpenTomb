@@ -26,7 +26,7 @@
 
 void AI_UpdateEntity(entity_p entity)
 {
-    entity_p targetEntity = World_GetPlayer();
+    entity_p target_entity = World_GetPlayer();
 
     ///@TODO Only supporting TR1
     if(World_GetVersion() != TR_I)
@@ -35,14 +35,14 @@ void AI_UpdateEntity(entity_p entity)
     }
 
     //We can only continue if entity and targetEntity are valid entities.
-    if((entity != NULL) && targetEntity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
+    if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
     {
         CPathFinder* pathFinder = new CPathFinder();
 
         ///@FIXME Only search nearby rooms for now
-        if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, targetEntity->current_sector->owner_room)))
+        if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, target_entity->current_sector->owner_room)))
         {
-            return;
+            //return;
         }
         else
         {
@@ -53,38 +53,38 @@ void AI_UpdateEntity(entity_p entity)
         {
     case tr1Enemy::WOLF:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateWolf(entity);
         }
         break;
     case tr1Enemy::BEAR:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateBear(entity);
         }
         break;
     case tr1Enemy::BAT:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::FLYING);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::FLYING);
-            AI_UpdateBat(entity);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::FLYING);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING);
+            //AI_UpdateBat(entity);
         }
         break;
     case tr1Enemy::CROC:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateCroc(entity);
         }
         break;
     case tr1Enemy::CROC2:
         {
-            if(targetEntity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
+            if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
             {
-                pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-                AI_MoveEntity(entity, targetEntity, pathFinder, AIType::WATER);
+                pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::WATER);
+                AI_MoveEntity(entity, target_entity, pathFinder, AIType::WATER);
                 AI_UpdateCroc2(entity);
             }
             else
@@ -95,32 +95,33 @@ void AI_UpdateEntity(entity_p entity)
         break;
     case tr1Enemy::LION_M:
     case tr1Enemy::LION_F:
+    case tr1Enemy::PANTHER:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateLion(entity);
         }
         break;
     case tr1Enemy::GORILLA:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateGorilla(entity);
         }
         break;
     case tr1Enemy::RAT:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
             AI_UpdateRat(entity);
         }
         break;
     case tr1Enemy::RAT2:
         {
-            if(targetEntity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
+            if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
             {
-                pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::WATER);
-                AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND | AIType::WATER);
+                pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::WATER);
+                AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
                 AI_UpdateRat2(entity);
             }
             else
@@ -131,16 +132,30 @@ void AI_UpdateEntity(entity_p entity)
         break;
     case tr1Enemy::TREX:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateTrex(entity);
         }
         break;
     case tr1Enemy::RAPTOR:
         {
-            pathFinder->FindPath(entity->current_sector, targetEntity->current_sector, AIType::GROUND);
-            AI_MoveEntity(entity, targetEntity, pathFinder, AIType::GROUND);
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateRaptor(entity);
+        }
+        break;
+    case tr1Enemy::MUTANT_WINGED:
+        {
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::FLYING);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING | AIType::GROUND);
+            AI_UpdateMutantWinged(entity);
+        }
+        break;
+    case tr1Enemy::MUTANT_CENTAUR:
+        {
+            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
+            AI_UpdateMutantCentaur(entity);
         }
         break;
     default:
@@ -199,7 +214,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
         dx = dx *(M_PI / 180.0);
         dy = dy *(M_PI / 180.0);
-        float ang = atan2(entity->angles[0] - dx, target_entity->angles[0] - dx);
+        float ang = atan2f(entity->angles[0] - dx, target_entity->angles[1] - dy);
         entity->angles[0] = ang * (180/M_PI);
         Entity_UpdateTransform(entity);
     }
@@ -270,7 +285,7 @@ void AI_UpdateCroc(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 3:
+        case 2:
             break;
         default:
             Entity_SetAnimation(entity, 0, 3, 0);
@@ -287,10 +302,10 @@ void AI_UpdateCroc2(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 2:
+        case 1:
             break;
         default:
-            Entity_SetAnimation(entity, 0, 2, 0);
+            Entity_SetAnimation(entity, 0, 1, 0);
             break;
         }
     }
@@ -303,7 +318,7 @@ void AI_UpdateLion(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 5:
+        case 3:
             break;
         default:
             Entity_SetAnimation(entity, 0, 5, 0);
@@ -319,7 +334,7 @@ void AI_UpdateGorilla(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 7:
+        case 3:
             break;
         default:
             Entity_SetAnimation(entity, 0, 7, 0);
@@ -336,10 +351,10 @@ void AI_UpdateRat(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 3:
+        case 1:
             break;
         default:
-            Entity_SetAnimation(entity, 0, 3, 0);
+            Entity_SetAnimation(entity, 0, 1, 0);
             break;
         }
     }
@@ -351,7 +366,7 @@ void AI_UpdateRat2(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 2:
+        case 3:
             break;
         default:
             Entity_SetAnimation(entity, 0, 2, 0);
@@ -367,7 +382,7 @@ void AI_UpdateTrex(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 2:
+        case 3:
             break;
         default:
             Entity_SetAnimation(entity, 0, 2, 0);
@@ -383,10 +398,41 @@ void AI_UpdateRaptor(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 2:
+        case 3:
             break;
         default:
             Entity_SetAnimation(entity, 0, 2, 0);
+            break;
+        }
+    }
+}
+
+///@TODO
+void AI_UpdateMutantWinged(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 3:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 5, 0);
+            break;
+        }
+    }
+}
+///@TODO
+void AI_UpdateMutantCentaur(entity_p entity)
+{
+    if(entity != NULL)
+    {
+        switch(entity->bf->animations.next_state)
+        {
+        case 3:
+            break;
+        default:
+            Entity_SetAnimation(entity, 0, 5, 0);
             break;
         }
     }
