@@ -50,7 +50,7 @@ CPathFinder::~CPathFinder()
 /*
  * This method starts a search from one room sector to the other
  */
-void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags)
+void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags)///@TODO move params to constructor
 {
     //Impossible to continue if either start/target sector pointers are NULL
     assert(start);
@@ -61,7 +61,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
     {
         return;
     }
-#endif // SINGLE_ROOM
+#endif // SINGLE_ROOM#
 
     //Set flags so that we can customise the algorithm based on ai types
     this->m_flags |= flags;
@@ -115,7 +115,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
         {
             for(short y = -1; y < 2; y++)
             {
-                for(short z = -1; z < 2; z++)
+                for(short z = -1; z < 2; z++)///@FIXME - Performance concerns here. Should first check 0
                 {
                     //This is the current node, we'll skip it as it's useless!
                     if(x == 0 && y == 0 && z == 0)
@@ -136,7 +136,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                     //We need to check if this is a valid sector the entity is able to walk upon
                     if(!this->IsValidNeighbour(current_node, neighbour_node))
                     {
-                        continue;///@OPTIMISE Add invalid neighbour to closed list?
+                        continue;
                     }
 
                     if(neighbour_node != NULL)
@@ -335,13 +335,6 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
 
 CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)
 {
-#if 0
-    //Invalid only flying/swimming entities should check above/below sectors
-    if(!this->m_flags & AIType::FLYING || !this->m_flags & AIType::WATER  && z != 0)///@CHECK no ground/water enemies should too!
-    {
-        return NULL;
-    }
-#endif
     assert(current_node);
 
     room_sector_s* current_sector = current_node->GetSector();
@@ -353,13 +346,18 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
     short neighbour_x = (x + current_sector->index_x);
     short neighbour_y = (y + current_sector->index_y);
 
-    ///Room override for flying entities
     if(z == -1)
     {
         room_sector_s* sector_below = current_sector->sector_below;
         if(sector_below)
         {
             current_room = sector_below->owner_room;
+            neighbour_x = (x + sector_below->index_x);
+            neighbour_y = (y + sector_below->index_y);
+        }
+        else
+        {
+            return NULL;
         }
     }
     else if(z == 1)
@@ -368,6 +366,12 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         if(sector_above)
         {
             current_room = sector_above->owner_room;
+            neighbour_x = (x + sector_above->index_x);
+            neighbour_y = (y + sector_above->index_y);
+        }
+        else
+        {
+            return NULL;
         }
     }
 
@@ -377,17 +381,17 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         (neighbour_x < current_room->sectors_x) &&
         (neighbour_y < current_room->sectors_y))
     {
-
         //Generate a neighbour node with the newly found sector.
         room_sector_s* neighbour_sector = World_GetRoomSector(current_room->id, neighbour_x, neighbour_y);
-        CPathNode* neighbour_node = this->AddNode();
-        neighbour_node->SetSector(neighbour_sector);
 
-        if(neighbour_node->GetSector()->index_x != current_node->GetSector()->index_x && neighbour_node->GetSector()->index_y != current_node->GetSector()->index_y && z == 0)
+        //Disable diagonal
+        if(neighbour_sector->index_x != current_sector->index_x && neighbour_sector->index_y != current_sector->index_y && z == 0)
         {
             return NULL;
         }
 
+        CPathNode* neighbour_node = this->AddNode();
+        neighbour_node->SetSector(neighbour_sector);
         return neighbour_node;
     }
     else
@@ -403,15 +407,20 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
             for(unsigned int i = 0; i < neighbour_room->sectors_count; i++)
             {
                 room_sector_s* sector = &neighbour_room->sectors[i];
-                if(sector->portal_to_room == current_room)
+                if(sector->portal_to_room != current_room)
                 {
-                    ///if(this->m_flags & AIType::GROUND) ///@FIXME ground entities move diagonal around portals!
-                    ///{
-
-                    ///}
+                    continue;
+                }
+                else
+                {
+                     ///@FIXME should check to see which is the best portal sector that our entity can go to!
                     CPathNode* neighbour_node = this->AddNode();
                     neighbour_node->SetSector(sector);
-                    return neighbour_node;
+
+                    if(IsValidNeighbour(current_node, neighbour_node))
+                    {
+                        return neighbour_node;
+                    }
                 }
             }
         }
@@ -481,6 +490,12 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
     assert(current_sector);
     assert(neighbour_sector);
 
+    ///Invalid entity cannot move here
+    if(neighbour_sector->floor == neighbour_sector->ceiling)
+    {
+        return false;
+    }
+
     ///Water entities can only move through rooms that have water flag set
     if(this->m_flags & AIType::WATER)
     {
@@ -488,41 +503,23 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
         {
             return false;
         }
-    }
-
-    if((this->m_flags & AIType::FLYING))
+    } ///Ground and flying entities should never enter water.
+    else if((this->m_flags & AIType::FLYING) || (this->m_flags & AIType::GROUND))
     {
-        if(neighbour_sector != NULL)
-        {
-            if(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
-        }
-    }
-
-    if((this->m_flags & AIType::GROUND))
-    {
-        room_sector_s* current_sector_below = current_sector->sector_below;
-        room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
-#if 0
-        if(current_sector_below != NULL)
-        {
-            if(current_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
-        }
-
-        if(neighbour_sector_below != NULL)
-        {
-            if(neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER) return false;
-        }
-#else
-        if(neighbour_sector_below != NULL)
+        if(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
         {
             return false;
         }
-#endif
+    }
 
+    ///Ground entities can only move on floor, so here we check if the neighbour has a sector below it!
+    if((this->m_flags & AIType::GROUND))
+    {
         ///This checks floor heights so ground entities don't walk on certain slopes.
-        if(current_sector->floor != neighbour_sector->floor)
+        if(current_sector->floor != neighbour_sector->floor)///@TODO Check entity OBB, can entity actually move through this space?
         {
             //Height difference
+            ///@TODO revert me!
             int current_sector_num_steps = (current_sector->floor / 256);///@FIXME Illegal height check
             int neighbour_sector_num_steps = (neighbour_sector->floor / 256);///@FIXME Illegal height check
             int step = current_sector_num_steps - neighbour_sector_num_steps;
@@ -531,6 +528,12 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
             {
                 return false;
             }
+        }
+
+        room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
+        if(neighbour_sector_below != NULL)
+        {
+            return false;
         }
     }
 

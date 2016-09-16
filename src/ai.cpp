@@ -19,6 +19,7 @@
 #include <BulletCollision/NarrowPhaseCollision/btRaycastCallback.h>
 
 #include <cassert>
+#include <cmath>
 
 /*
  * Updates specific entity
@@ -38,15 +39,9 @@ void AI_UpdateEntity(entity_p entity)
     if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
     {
         CPathFinder* pathFinder = new CPathFinder();
-
-        ///@FIXME Only search nearby rooms for now
         if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, target_entity->current_sector->owner_room)))
         {
-            //return;
-        }
-        else
-        {
-            ///@TODO gen escape path!
+            return;///@TODO gen escape path!
         }
 
         switch(entity->bf->animations.model->id)
@@ -192,10 +187,11 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
 
     if((flags & AIType::FLYING))///@FIXME No! Move state!
     {
+        //targetPos.setZ(next_node->GetSector()->floor - next_node->GetSector()->ceiling + 512.0f);
         targetPos.setZ(next_node->GetSector()->floor + 512.0f);
     }
 
-    resultPos = lerp(startPos, targetPos, 1.30 * engine_frame_time);
+    resultPos = lerp(startPos, targetPos, 2.2f * engine_frame_time);
     entity->transform[12] = resultPos.getX();
     entity->transform[13] = resultPos.getY();
 
@@ -210,12 +206,10 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
     CPathNode* parent_node = next_node->GetParentNode();
     if(parent_node != NULL)
     {
-        float dx = static_cast<float>((next_node->GetSector()->index_x - parent_node->GetSector()->index_x) * 90.0f);
-        float dy = static_cast<float>((next_node->GetSector()->index_y - parent_node->GetSector()->index_y) * 90.0f);
-        dx = dx *(M_PI / 180.0);
-        dy = dy *(M_PI / 180.0);
-        float ang = atan2f(entity->angles[0] - dx, target_entity->angles[1] - dy);
-        entity->angles[0] = ang * (180/M_PI);
+        float dx = (next_node->GetSector()->index_x - parent_node->GetSector()->index_x);
+        float dy = (next_node->GetSector()->index_y - parent_node->GetSector()->index_y);
+        float target_angle = atan2f(dx, dy) * (180.0f/M_PI);
+        entity->angles[0] = -target_angle;
         Entity_UpdateTransform(entity);
     }
 }
@@ -230,6 +224,9 @@ void AI_UpdateWolf(entity_p entity)
         case 8:
             Entity_SetAnimation(entity, 0, 6, 0);///@FIXME illegal state change
          break;
+        case 6:
+            Entity_SetAnimation(entity, 0, 8, 0);
+            break;
         case 3:
             {
                 ///ATTACK
@@ -414,10 +411,10 @@ void AI_UpdateMutantWinged(entity_p entity)
     {
         switch(entity->bf->animations.next_state)
         {
-        case 3:
+        case 13:
             break;
         default:
-            Entity_SetAnimation(entity, 0, 5, 0);
+            Entity_SetAnimation(entity, 0, 25, 0);
             break;
         }
     }
