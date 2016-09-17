@@ -17,6 +17,7 @@
 #include <BulletCollision/CollisionDispatch/btGhostObject.h>
 #include <BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h>
 #include <BulletCollision/NarrowPhaseCollision/btRaycastCallback.h>
+#include <BulletSoftBody/btsoftbodyinternals.h>
 
 #include <cassert>
 #include <cmath>
@@ -38,7 +39,7 @@ void AI_UpdateEntity(entity_p entity)
     //We can only continue if entity and targetEntity are valid entities.
     if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
     {
-        CPathFinder* pathFinder = new CPathFinder();
+        CPathFinder* pathFinder = new CPathFinder(entity->current_sector, target_entity->current_sector);
         if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, target_entity->current_sector->owner_room)))
         {
             return;///@TODO gen escape path!
@@ -48,28 +49,28 @@ void AI_UpdateEntity(entity_p entity)
         {
     case tr1Enemy::WOLF:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateWolf(entity);
         }
         break;
     case tr1Enemy::BEAR:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateBear(entity);
         }
         break;
     case tr1Enemy::BAT:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::FLYING);
+            pathFinder->FindPath(AIType::FLYING);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING);
             //AI_UpdateBat(entity);
         }
         break;
     case tr1Enemy::CROC:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateCroc(entity);
         }
@@ -78,7 +79,7 @@ void AI_UpdateEntity(entity_p entity)
         {
             if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
             {
-                pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::WATER);
+                pathFinder->FindPath(AIType::WATER);
                 AI_MoveEntity(entity, target_entity, pathFinder, AIType::WATER);
                 AI_UpdateCroc2(entity);
             }
@@ -92,21 +93,21 @@ void AI_UpdateEntity(entity_p entity)
     case tr1Enemy::LION_F:
     case tr1Enemy::PANTHER:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateLion(entity);
         }
         break;
     case tr1Enemy::GORILLA:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateGorilla(entity);
         }
         break;
     case tr1Enemy::RAT:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
             AI_UpdateRat(entity);
         }
@@ -115,7 +116,7 @@ void AI_UpdateEntity(entity_p entity)
         {
             if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
             {
-                pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::WATER);
+                pathFinder->FindPath(AIType::WATER);
                 AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
                 AI_UpdateRat2(entity);
             }
@@ -127,28 +128,28 @@ void AI_UpdateEntity(entity_p entity)
         break;
     case tr1Enemy::TREX:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateTrex(entity);
         }
         break;
     case tr1Enemy::RAPTOR:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateRaptor(entity);
         }
         break;
     case tr1Enemy::MUTANT_WINGED:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::FLYING);
+            pathFinder->FindPath(AIType::FLYING);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING | AIType::GROUND);
             AI_UpdateMutantWinged(entity);
         }
         break;
     case tr1Enemy::MUTANT_CENTAUR:
         {
-            pathFinder->FindPath(entity->current_sector, target_entity->current_sector, AIType::GROUND);
+            pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateMutantCentaur(entity);
         }
@@ -209,7 +210,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         float dx = (next_node->GetSector()->index_x - parent_node->GetSector()->index_x);
         float dy = (next_node->GetSector()->index_y - parent_node->GetSector()->index_y);
         float target_angle = atan2f(dx, dy) * (180.0f/M_PI);
-        entity->angles[0] = -target_angle;
+        entity->angles[0] = -target_angle;//Lerp(entity->angles[0], -target_angle, 2.3 * engine_frame_time);
         Entity_UpdateTransform(entity);
     }
 }

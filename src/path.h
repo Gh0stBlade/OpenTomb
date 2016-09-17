@@ -14,10 +14,10 @@ class CPathFinder
 
 public:
 
-     CPathFinder();
+     CPathFinder(room_sector_s* start_sector, room_sector_s* target_sector);
     ~CPathFinder();
 
-    void                        FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags);
+    void                        FindPath(unsigned char flags);
     std::vector<CPathNode*>     GetResultPath();         ///Returns the result path
 
 private:
@@ -26,6 +26,8 @@ private:
     std::vector<CPathNode*>     m_openList;              ///Nodes which have to be searched
     std::vector<CPathNode*>     m_closedList;            ///Nodes which have been searched and are now closed
     unsigned char               m_flags;                 ///Flags telling us what type of AI we need to create the path for.
+    room_sector_s*              m_startSector;
+    room_sector_s*              m_targetSector;
 
     CPathNode*                  GetNextOpenNode();
     void                        AddToOpenList(CPathNode* node);

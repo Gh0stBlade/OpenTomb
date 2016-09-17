@@ -17,13 +17,15 @@
  * Default constructor, initialise CPathFinder here.
  */
 
-CPathFinder::CPathFinder()
+CPathFinder::CPathFinder(room_sector_s* start_sector, room_sector_s* target_sector)
 {
     this->m_nodes.clear();
     this->m_openList.clear();
     this->m_closedList.clear();
     this->m_resultPath.clear();
     this->m_flags = 0;
+    this->m_startSector = start_sector;
+    this->m_targetSector = target_sector;
 }
 
 /*
@@ -45,19 +47,21 @@ CPathFinder::~CPathFinder()
     this->m_closedList.clear();
     this->m_resultPath.clear();
     this->m_flags = 0;
+    this->m_startSector = NULL;
+    this->m_targetSector = NULL;
 }
 
 /*
  * This method starts a search from one room sector to the other
  */
-void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned char flags)///@TODO move params to constructor
+void CPathFinder::FindPath(unsigned char flags)///@TODO move params to constructor
 {
     //Impossible to continue if either start/target sector pointers are NULL
-    assert(start);
-    assert(target);
+    assert(this->m_startSector);
+    assert(this->m_targetSector);
 
 #if SINGLE_ROOM
-    if(start->owner_room != target->owner_room)
+    if(this->m_startSector->owner_room != this->m_targetSector->owner_room)
     {
         return;
     }
@@ -68,12 +72,22 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
 
     CPathNode* start_node = this->AddNode();
     assert(start_node);
-    start_node->SetSector(start);
+    start_node->SetSector(this->m_startSector);
     this->AddToOpenList(start_node);
 
     CPathNode* target_node = this->AddNode();
     assert(target_node);
-    target_node->SetSector(target);
+    target_node->SetSector(this->m_targetSector);
+
+
+    ///Early exit ground/flying entities will never find Lara.
+    if(this->m_flags & AIType::GROUND || this->m_flags & AIType::FLYING)
+    {
+        if(this->m_targetSector->owner_room->flags & TR_ROOM_FLAG_WATER)
+        {
+            return;///@TODO generate escape path.
+        }
+    }
 
     while((this->m_openList.size() > 0))
     {
@@ -87,7 +101,7 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
 #endif // PATH_LOG_DETAILED_INFO
 
         //If current_node's sector is the target sector we stop!
-        if(current_node->GetSector() == target)
+        if(current_node->GetSector() == this->m_targetSector)
         {
             //We're ready to generate the final path
             this->GeneratePath(current_node);
@@ -136,6 +150,11 @@ void CPathFinder::FindPath(room_sector_s* start, room_sector_s* target, unsigned
                     //We need to check if this is a valid sector the entity is able to walk upon
                     if(!this->IsValidNeighbour(current_node, neighbour_node))
                     {
+                        ///Early out, impossible to reach target
+                        if(neighbour_node->GetSector() == current_node->GetSector())
+                        {
+                            break;
+                        }
                         continue;
                     }
 
@@ -333,7 +352,7 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
  * Returns CPathNode* at x, y in node list.
  */
 
-CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)
+CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)///@OPTIMISE if current node is same as target, we don't want to search portals.
 {
     assert(current_node);
 
@@ -397,9 +416,17 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
     else
     {
 #if !SINGLE_ROOM
+
+        ///We're only required to search portals if target is NOT in the current room
+        if(this->m_targetSector->owner_room == current_node->GetSector()->owner_room)
+        {
+            return NULL;
+        }
+
         ///An out of bound room sector means we've possibly reached a portal sector (hence why the current neighbour is not in bounds of the current room)
         ///Here we check this and add the sector through the portal so the search is continued.
         room_s* neighbour_room = current_node->GetSector()->portal_to_room;
+
         if(neighbour_room != NULL)
         {
             ///Here we iterate through all sectors in the neighbour room to find the sector that joins with the current portal
