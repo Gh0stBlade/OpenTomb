@@ -28,10 +28,10 @@
 
 void AI_UpdateEntity(entity_p entity)
 {
-    entity_p target_entity = World_GetPlayer();
+    entity_s* target_entity = World_GetPlayer();
 
-    ///@TODO Only supporting TR1
-    if(World_GetVersion() != TR_I)
+    ///@TODO Only supporting TR1/UB
+    if(World_GetVersion() > TR_I_UB)
     {
         return;
     }
@@ -40,11 +40,6 @@ void AI_UpdateEntity(entity_p entity)
     if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
     {
         CPathFinder* pathFinder = new CPathFinder(entity->current_sector, target_entity->current_sector);
-        if(!(Room_IsInNearRoomsList(entity->current_sector->owner_room, target_entity->current_sector->owner_room)))
-        {
-            return;///@TODO gen escape path!
-        }
-
         switch(entity->bf->animations.model->id)
         {
     case tr1Enemy::WOLF:
@@ -52,43 +47,36 @@ void AI_UpdateEntity(entity_p entity)
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateWolf(entity);
+            break;
         }
-        break;
     case tr1Enemy::BEAR:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateBear(entity);
+            break;
         }
-        break;
     case tr1Enemy::BAT:
         {
             pathFinder->FindPath(AIType::FLYING);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING);
             //AI_UpdateBat(entity);
+            break;
         }
-        break;
     case tr1Enemy::CROC:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateCroc(entity);
+            break;
         }
-        break;
-    case tr1Enemy::CROC2:
+    case tr1Enemy::CROC2:///@TODO When not in water swap path flags
         {
-            if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
-            {
-                pathFinder->FindPath(AIType::WATER);
-                AI_MoveEntity(entity, target_entity, pathFinder, AIType::WATER);
-                AI_UpdateCroc2(entity);
-            }
-            else
-            {
-                ///@TODO Gen escape path!
-            }
+            pathFinder->FindPath(AIType::WATER);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::WATER);
+            AI_UpdateCroc2(entity);
+            break;
         }
-        break;
     case tr1Enemy::LION_M:
     case tr1Enemy::LION_F:
     case tr1Enemy::PANTHER:
@@ -96,64 +84,57 @@ void AI_UpdateEntity(entity_p entity)
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateLion(entity);
+            break;
         }
-        break;
     case tr1Enemy::GORILLA:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateGorilla(entity);
+            break;
         }
-        break;
     case tr1Enemy::RAT:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
             AI_UpdateRat(entity);
+            break;
         }
-        break;
     case tr1Enemy::RAT2:
         {
-            if(target_entity->current_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
-            {
-                pathFinder->FindPath(AIType::WATER);
-                AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
-                AI_UpdateRat2(entity);
-            }
-            else
-            {
-                ///@TODO Gen escape path!
-            }
+            pathFinder->FindPath(AIType::WATER);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND | AIType::WATER);
+            AI_UpdateRat2(entity);
+            break;
         }
-        break;
     case tr1Enemy::TREX:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateTrex(entity);
+            break;
         }
-        break;
     case tr1Enemy::RAPTOR:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateRaptor(entity);
+            break;
         }
-        break;
     case tr1Enemy::MUTANT_WINGED:
         {
             pathFinder->FindPath(AIType::FLYING);
-            AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING | AIType::GROUND);
+            AI_MoveEntity(entity, target_entity, pathFinder, AIType::FLYING);
             AI_UpdateMutantWinged(entity);
+            break;
         }
-        break;
     case tr1Enemy::MUTANT_CENTAUR:
         {
             pathFinder->FindPath(AIType::GROUND);
             AI_MoveEntity(entity, target_entity, pathFinder, AIType::GROUND);
             AI_UpdateMutantCentaur(entity);
+            break;
         }
-        break;
     default:
         //Nothing
         break;
@@ -192,7 +173,7 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         targetPos.setZ(next_node->GetSector()->floor + 512.0f);
     }
 
-    resultPos = lerp(startPos, targetPos, 2.2f * engine_frame_time);
+    resultPos = lerp(startPos, targetPos, 1.2f * engine_frame_time);
     entity->transform[12] = resultPos.getX();
     entity->transform[13] = resultPos.getY();
 

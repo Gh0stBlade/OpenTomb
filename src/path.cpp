@@ -8,10 +8,12 @@
 #include <cassert>
 
 ///TEMPORARY
-#define SINGLE_ROOM             (0)
-#define PATH_STABILITY_DEBUG    (0)
-#define PATH_LOG_DETAILED_INFO  (0)
-#define PATH_DEBUG_DRAW         (1)
+#define SINGLE_ROOM              (0)
+#define PATH_STABILITY_DEBUG     (0)
+#define PATH_LOG_DETAILED_INFO   (0)
+#define PATH_DEBUG_DRAW          (1)
+#define PATH_DEBUG_CLOSED_NODES  (0)
+#define PATH_DISABLE_VALID_NODES (0)
 
 /*
  * Default constructor, initialise CPathFinder here.
@@ -91,6 +93,11 @@ void CPathFinder::FindPath(unsigned char flags)///@TODO move params to construct
 
     while((this->m_openList.size() > 0))
     {
+        if(this->m_nodes.size() > (64*64))///@HACK
+        {
+             break;
+        }
+
         //Get the next node with lowest cost in the open list
         CPathNode* current_node = this->GetNextOpenNode();
         assert(current_node);
@@ -151,7 +158,7 @@ void CPathFinder::FindPath(unsigned char flags)///@TODO move params to construct
                     if(!this->IsValidNeighbour(current_node, neighbour_node))
                     {
                         ///Early out, impossible to reach target
-                        if(neighbour_node->GetSector() == current_node->GetSector())
+                        if(neighbour_node->GetSector() == target_node->GetSector())
                         {
                             break;
                         }
@@ -499,6 +506,19 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
         this->m_resultPath.push_back(end_node);
         end_node = end_node->GetParentNode();
     }
+
+#if PATH_DEBUG_CLOSED_NODES
+    renderer.debugDrawer->SetColor(1.0, 0.0, 0.0);
+    for(size_t i = 0; i < this->m_closedList.size(); i++)
+    {
+        room_sector_s* sector = this->m_closedList.at(i)->GetSector();
+        if(sector != NULL)
+        {
+            renderer.debugDrawer->DrawSectorDebugLines(sector);
+        }
+    }
+
+#endif // PATH_DEBUG_CLOSED_NODES
 }
 
 /*
