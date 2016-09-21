@@ -622,7 +622,7 @@ int CPathFinder::GetMovementCost(CPathNode* from_node, CPathNode* to_node)
 CPathNode* CPathFinder::AddNode()
 {
     this->m_nodes.emplace_back(new CPathNode());
-    CPathNode* node = this->m_nodes[this->m_nodes.size()-1];
+    return this->m_nodes[this->m_nodes.size()-1];
 }
 
 std::vector<CPathNode*> CPathFinder::GetResultPath()
