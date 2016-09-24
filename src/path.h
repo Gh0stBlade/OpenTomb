@@ -18,7 +18,7 @@ public:
     ~CPathFinder();
 
     void                        FindPath(unsigned char flags);
-    std::vector<CPathNode*>     GetResultPath();         ///Returns the result path
+    std::vector<CPathNode*>*    GetResultPath();         ///Returns the result path
 
 private:
     std::vector<CPathNode*>     m_resultPath;            ///Final result path is stored here if found.
@@ -41,7 +41,7 @@ private:
     void                        GeneratePath(CPathNode* end_node);
     bool                        IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node);
     int                         GetMovementCost(CPathNode* from_node, CPathNode* to_node);
-    CPathNode*                  AddNode();
+    CPathNode*                  AddNode(room_sector_s* sector);
 };
 
 #endif // PATH_H

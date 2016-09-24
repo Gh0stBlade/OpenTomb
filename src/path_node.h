@@ -9,7 +9,7 @@ class CPathNode
 
 public:
 
-    CPathNode();
+    CPathNode(room_sector_s* sector);
     ~CPathNode();
 
     void                    SetG(unsigned int g);

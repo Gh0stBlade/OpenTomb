@@ -149,13 +149,13 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
     assert(target_entity);
     assert(path);
 
-    std::vector<CPathNode*> resultPath = path->GetResultPath();
-    if(resultPath.size() <= 0)
+    std::vector<CPathNode*>* resultPath = path->GetResultPath();
+    if(resultPath->size() <= 0)
     {
         return;
     }
 
-    CPathNode* next_node = resultPath[resultPath.size()-1];
+    CPathNode* next_node = resultPath->back();
     btVector3 startPos, targetPos, resultPos;
 
     ///This is DISGRACEFUL ;)
@@ -194,6 +194,8 @@ void AI_MoveEntity(entity_p entity, entity_p target_entity, CPathFinder* path, u
         entity->angles[0] = -target_angle;//Lerp(entity->angles[0], -target_angle, 2.3 * engine_frame_time);
         Entity_UpdateTransform(entity);
     }
+
+    resultPath = NULL;
 }
 
 ///@PLACHOLDER

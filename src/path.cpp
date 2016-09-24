@@ -6,14 +6,17 @@
 
 #include <cmath>
 #include <cassert>
+#include <algorithm>
 
 ///TEMPORARY
-#define SINGLE_ROOM              (0)
 #define PATH_STABILITY_DEBUG     (0)
 #define PATH_LOG_DETAILED_INFO   (0)
 #define PATH_DEBUG_DRAW          (1)
 #define PATH_DEBUG_CLOSED_NODES  (0)
 #define PATH_DISABLE_VALID_NODES (0)
+
+//Maximum height an AI entity can step upon
+const unsigned short MAX_STEP_HEIGHT = 256;
 
 /*
  * Default constructor, initialise CPathFinder here.
@@ -36,12 +39,9 @@ CPathFinder::CPathFinder(room_sector_s* start_sector, room_sector_s* target_sect
 
 CPathFinder::~CPathFinder()
 {
-    if(this->m_nodes.size() > 0)
+    for(size_t i = 0; i < this->m_nodes.size(); i++)
     {
-        for(size_t i = 0; i < this->m_nodes.size(); i++)
-        {
-            delete this->m_nodes[i];
-        }
+        delete this->m_nodes[i];
     }
 
     this->m_nodes.clear();
@@ -49,58 +49,42 @@ CPathFinder::~CPathFinder()
     this->m_closedList.clear();
     this->m_resultPath.clear();
     this->m_flags = 0;
-    this->m_startSector = NULL;
-    this->m_targetSector = NULL;
+    this->m_startSector = nullptr;
+    this->m_targetSector = nullptr;
 }
 
 /*
  * This method starts a search from one room sector to the other
  */
-void CPathFinder::FindPath(unsigned char flags)///@TODO move params to constructor
+void CPathFinder::FindPath(unsigned char flags)
 {
-    //Impossible to continue if either start/target sector pointers are NULL
-    assert(this->m_startSector);
-    assert(this->m_targetSector);
-
-#if SINGLE_ROOM
-    if(this->m_startSector->owner_room != this->m_targetSector->owner_room)
-    {
-        return;
-    }
-#endif // SINGLE_ROOM#
+    //Impossible to continue if either start/target sector pointers are nullptr
+    assert(this->m_startSector != nullptr && this->m_targetSector != nullptr);
 
     //Set flags so that we can customise the algorithm based on ai types
     this->m_flags |= flags;
 
-    CPathNode* start_node = this->AddNode();
-    assert(start_node);
-    start_node->SetSector(this->m_startSector);
+    CPathNode* start_node = this->AddNode(this->m_startSector);
+    CPathNode* target_node = this->AddNode(this->m_targetSector);
+    assert(start_node != nullptr && target_node != nullptr);
     this->AddToOpenList(start_node);
 
-    CPathNode* target_node = this->AddNode();
-    assert(target_node);
-    target_node->SetSector(this->m_targetSector);
-
-
     ///Early exit ground/flying entities will never find Lara.
-    if(this->m_flags & AIType::GROUND || this->m_flags & AIType::FLYING)
+    if(!(this->m_flags & AIType::WATER) && (this->m_targetSector->owner_room->flags & TR_ROOM_FLAG_WATER))
     {
-        if(this->m_targetSector->owner_room->flags & TR_ROOM_FLAG_WATER)
-        {
-            return;///@TODO generate escape path.
-        }
+        return;///@TODO generate escape path.
     }
 
     while((this->m_openList.size() > 0))
     {
-        if(this->m_nodes.size() > (64*64))///@HACK
+        if(this->m_nodes.size() > (32*32))///@HACK
         {
              break;
         }
 
         //Get the next node with lowest cost in the open list
         CPathNode* current_node = this->GetNextOpenNode();
-        assert(current_node);
+        assert(current_node != nullptr);
 
 #if PATH_LOG_DETAILED_INFO
         Sys_DebugLog(SYS_LOG_PATHFINDER, "PathFinder is at X: %i, Y: %i\n", current_node->GetSector()->index_x, current_node->GetSector()->index_y);
@@ -136,7 +120,7 @@ void CPathFinder::FindPath(unsigned char flags)///@TODO move params to construct
         {
             for(short y = -1; y < 2; y++)
             {
-                for(short z = -1; z < 2; z++)///@FIXME - Performance concerns here. Should first check 0
+                for(short z = 0; z < 3; z++)
                 {
                     //This is the current node, we'll skip it as it's useless!
                     if(x == 0 && y == 0 && z == 0)
@@ -146,7 +130,7 @@ void CPathFinder::FindPath(unsigned char flags)///@TODO move params to construct
 
                     //Grab the neighbour node
                     CPathNode* neighbour_node = this->GetNeighbourNode(x, y, z, current_node);
-                    if(neighbour_node == NULL)
+                    if(neighbour_node == nullptr)
                     {
 #if PATH_STABILITY_DEBUG
                         Sys_DebugLog(SYS_LOG_PATHFINDER, "[CPathFinder] - Neighbour is NULL!\n");
@@ -162,10 +146,13 @@ void CPathFinder::FindPath(unsigned char flags)///@TODO move params to construct
                         {
                             break;
                         }
-                        continue;
+                        else
+                        {
+                            continue;
+                        }
                     }
 
-                    if(neighbour_node != NULL)
+                    if(neighbour_node != nullptr)
                     {
                         //Get distance between our current_node and the neighbour_node
                         int step_cost = current_node->GetG() + this->GetMovementCost(current_node, neighbour_node);
@@ -223,7 +210,7 @@ CPathNode* CPathFinder::GetNextOpenNode()
     }
     else
     {
-        return NULL;
+        return nullptr;
     }
 #else
     if(this->m_openList.size() > 0)
@@ -232,7 +219,7 @@ CPathNode* CPathFinder::GetNextOpenNode()
     }
     else
     {
-        return NULL;
+        return nullptr;
     }
 #endif
 }
@@ -243,7 +230,7 @@ CPathNode* CPathFinder::GetNextOpenNode()
 
 void CPathFinder::AddToOpenList(CPathNode* node)
 {
-    assert(node);
+    assert(node != nullptr);
 #if 1
     this->m_openList.push_back(node);
 #else
@@ -281,17 +268,17 @@ void CPathFinder::AddToOpenList(CPathNode* node)
 
 void CPathFinder::AddToClosedList(CPathNode* node)
 {
-    assert(node);
+    assert(node != nullptr);
     this->m_closedList.push_back(node);
 }
 
 /*
- * Removes specific node pointer from open list.
+ * Removes input node pointer from open list.
  */
 
 void CPathFinder::RemoveFromOpenList(CPathNode* node)
 {
-    assert(node);
+    assert(node != nullptr);
     for(size_t i = 0; i < this->m_openList.size(); i++)
     {
         //If we located a pointer match it's the same node
@@ -304,12 +291,12 @@ void CPathFinder::RemoveFromOpenList(CPathNode* node)
 }
 
 /*
- * Removes specific node pointer from closed list.
+ * Removes input node pointer from closed list.
  */
 
 void CPathFinder::RemoveFromClosedList(CPathNode* node)
 {
-    assert(node);
+    assert(node != nullptr);
     for(size_t i = 0; i < this->m_closedList.size(); i++)
     {
         //If we located a pointer match it's the same node
@@ -322,7 +309,7 @@ void CPathFinder::RemoveFromClosedList(CPathNode* node)
 }
 
 /*
- * Returns 1 if input node is in the open list
+ * Returns true if input node is in the open list
  */
 
 bool CPathFinder::IsInOpenList(CPathNode* node)
@@ -339,7 +326,7 @@ bool CPathFinder::IsInOpenList(CPathNode* node)
 }
 
 /*
- * Returns 1 if input node is in the closed list
+ * Returns true if input node is in the closed list
  */
 
 bool CPathFinder::IsInClosedList(CPathNode* node)
@@ -361,21 +348,21 @@ bool CPathFinder::IsInClosedList(CPathNode* node)
 
 CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* current_node)///@OPTIMISE if current node is same as target, we don't want to search portals.
 {
-    assert(current_node);
+    assert(current_node != nullptr);
 
     room_sector_s* current_sector = current_node->GetSector();
-    assert(current_sector);
+    assert(current_sector != nullptr);
 
     room_s* current_room = current_sector->owner_room;
-    assert(current_room);
+    assert(current_room != nullptr);
 
     short neighbour_x = (x + current_sector->index_x);
     short neighbour_y = (y + current_sector->index_y);
 
-    if(z == -1)
+    if(z == 1)
     {
         room_sector_s* sector_below = current_sector->sector_below;
-        if(sector_below)
+        if(sector_below != nullptr)
         {
             current_room = sector_below->owner_room;
             neighbour_x = (x + sector_below->index_x);
@@ -383,13 +370,13 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         }
         else
         {
-            return NULL;
+            return nullptr;
         }
     }
-    else if(z == 1)
+    else if(z == 2)
     {
         room_sector_s* sector_above = current_sector->sector_above;
-        if(sector_above)
+        if(sector_above != nullptr)
         {
             current_room = sector_above->owner_room;
             neighbour_x = (x + sector_above->index_x);
@@ -397,7 +384,7 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         }
         else
         {
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -413,28 +400,25 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         //Disable diagonal
         if(neighbour_sector->index_x != current_sector->index_x && neighbour_sector->index_y != current_sector->index_y && z == 0)
         {
-            return NULL;
+            return nullptr;
         }
 
-        CPathNode* neighbour_node = this->AddNode();
-        neighbour_node->SetSector(neighbour_sector);
+        CPathNode* neighbour_node = this->AddNode(neighbour_sector);
         return neighbour_node;
     }
     else
     {
-#if !SINGLE_ROOM
-
         ///We're only required to search portals if target is NOT in the current room
         if(this->m_targetSector->owner_room == current_node->GetSector()->owner_room)
         {
-            return NULL;
+            return nullptr;
         }
 
         ///An out of bound room sector means we've possibly reached a portal sector (hence why the current neighbour is not in bounds of the current room)
         ///Here we check this and add the sector through the portal so the search is continued.
         room_s* neighbour_room = current_node->GetSector()->portal_to_room;
 
-        if(neighbour_room != NULL)
+        if(neighbour_room != nullptr)
         {
             ///Here we iterate through all sectors in the neighbour room to find the sector that joins with the current portal
             ///@OPTIMISE We can use World_GetSector... if we know the x,y indexs, should be calculated!
@@ -447,21 +431,21 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
                 }
                 else
                 {
-                     ///@FIXME should check to see which is the best portal sector that our entity can go to!
-                    CPathNode* neighbour_node = this->AddNode();
-                    neighbour_node->SetSector(sector);
-
-                    if(IsValidNeighbour(current_node, neighbour_node))
+                    if(sector->pos[0] == current_node->GetSector()->pos[0] || sector->pos[1] == current_node->GetSector()->pos[1])
                     {
-                        return neighbour_node;
+                        ///@FIXME should check to see which is the best portal sector that our entity can go to!
+                        CPathNode* neighbour_node = this->AddNode(sector);
+                        if(IsValidNeighbour(current_node, neighbour_node))
+                        {
+                            return neighbour_node;
+                        }
                     }
                 }
             }
         }
-#endif
     }
 
-    return NULL;
+    return nullptr;
 }
 
 /*
@@ -470,14 +454,12 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
 
 int CPathFinder::CalculateHeuristic(CPathNode* start, CPathNode* target)
 {
-    assert(start);
-    assert(target);
+    assert(start != nullptr && target != nullptr);
 
     room_sector_s* start_sector = start->GetSector();
     room_sector_s* target_sector = target->GetSector();
 
-    assert(start_sector);
-    assert(target_sector);
+    assert(start_sector != nullptr && target_sector != nullptr);
 
     int dx = std::abs((start_sector->pos[0] - target_sector->pos[0]));
     int dy = std::abs(start_sector->pos[1] - target_sector->pos[1]);
@@ -487,7 +469,7 @@ int CPathFinder::CalculateHeuristic(CPathNode* start, CPathNode* target)
 }
 
 /*
- * Prints final path
+ * Generates final path, stores in result_path
  */
 
 void CPathFinder::GeneratePath(CPathNode* end_node)
@@ -495,10 +477,10 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
 #if PATH_DEBUG_DRAW
     renderer.debugDrawer->SetColor(0.0, 1.0, 0.0);
 #endif
-    while(end_node->GetParentNode() != NULL)///@FIXME should be end_node?
+    while(end_node->GetParentNode() != nullptr)///@FIXME should be end_node?
     {
 #if PATH_DEBUG_DRAW
-        if(end_node->GetSector() != NULL)
+        if(end_node->GetSector() != nullptr)
         {
             renderer.debugDrawer->DrawSectorDebugLines(end_node->GetSector());
         }
@@ -512,7 +494,7 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
     for(size_t i = 0; i < this->m_closedList.size(); i++)
     {
         room_sector_s* sector = this->m_closedList.at(i)->GetSector();
-        if(sector != NULL)
+        if(sector != nullptr)
         {
             renderer.debugDrawer->DrawSectorDebugLines(sector);
         }
@@ -522,66 +504,77 @@ void CPathFinder::GeneratePath(CPathNode* end_node)
 }
 
 /*
- * Returns 1 if entity can move to this sector
+ * Returns true if entity can move to this sector
  */
-///@TODO - This should check sector heights and anything that would block a specific entity type from moving to a sector/node i.e (water, walls, next step too high..)
-///@TODO - Ceiling checks, water checks.
 bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour_node)
 {
-    assert(current_node);
-    assert(neighbour_node);
+    assert(current_node != nullptr);
+    assert(neighbour_node != nullptr);
 
     room_sector_s* current_sector = current_node->GetSector();
     room_sector_s* neighbour_sector = neighbour_node->GetSector();
 
-    assert(current_sector);
-    assert(neighbour_sector);
+    assert(current_sector != nullptr);
+    assert(neighbour_sector != nullptr);
 
     ///Invalid entity cannot move here
-    if(neighbour_sector->floor == neighbour_sector->ceiling)
+    if(neighbour_sector->floor == neighbour_sector->ceiling)///@FIXME &&! neighbour_sector->sector_below?
     {
         return false;
     }
 
     ///Water entities can only move through rooms that have water flag set
-    if(this->m_flags & AIType::WATER)
+    if(this->m_flags & AIType::WATER && !(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER))
     {
-        if(!(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER))
-        {
-            return false;
-        }
+        return false;
     } ///Ground and flying entities should never enter water.
-    else if((this->m_flags & AIType::FLYING) || (this->m_flags & AIType::GROUND))
+    else if(!this->m_flags & AIType::WATER && (neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER))
     {
-        if(neighbour_sector->owner_room->flags & TR_ROOM_FLAG_WATER)
-        {
-            return false;
-        }
+        return false;
     }
 
     ///Ground entities can only move on floor, so here we check if the neighbour has a sector below it!
     if((this->m_flags & AIType::GROUND))
     {
-        ///This checks floor heights so ground entities don't walk on certain slopes.
-        if(current_sector->floor != neighbour_sector->floor)///@TODO Check entity OBB, can entity actually move through this space?
+#if 0
+        room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
+        if(neighbour_sector_below != NULL)
+        {
+            ret = false;
+        }
+#else
+        if(current_sector->floor != neighbour_sector->floor)
         {
             //Height difference
-            ///@TODO revert me!
-            int current_sector_num_steps = (current_sector->floor / 256);///@FIXME Illegal height check
-            int neighbour_sector_num_steps = (neighbour_sector->floor / 256);///@FIXME Illegal height check
-            int step = current_sector_num_steps - neighbour_sector_num_steps;
+            int diff = current_sector->floor - neighbour_sector->floor;
             //If the current node's floor+1step is higher
-            if(step > 1 || step < -1)
+            if(diff > MAX_STEP_HEIGHT || diff < -MAX_STEP_HEIGHT)
             {
                 return false;
             }
         }
 
         room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
-        if(neighbour_sector_below != NULL)
+        int next_floor = 0;
+        int current_floor = current_sector->floor;
+        while(neighbour_sector_below)
         {
-            return false;
+            next_floor += neighbour_sector_below->floor;
+            if(current_floor - next_floor > MAX_STEP_HEIGHT || (neighbour_sector_below->owner_room->flags & TR_ROOM_FLAG_WATER))
+            {
+                return false;
+            }
+            else
+            {
+                if(neighbour_sector_below->sector_below != nullptr)
+                {
+                    return false;
+                }
+            }
+
+            neighbour_sector_below = neighbour_sector_below->sector_below;
         }
+#endif
     }
 
     return true;
@@ -595,9 +588,9 @@ int CPathFinder::GetMovementCost(CPathNode* from_node, CPathNode* to_node)
 {
     int movement_cost = 0;
 
-#if 0
+#if 1
     CPathNode* parent_node = from_node->GetParentNode();
-    if(parent_node != NULL)
+    if(parent_node != nullptr)
     {
         movement_cost += parent_node->GetG();
     }
@@ -619,13 +612,17 @@ int CPathFinder::GetMovementCost(CPathNode* from_node, CPathNode* to_node)
  * Adds then returns pointer to new node
  */
 
-CPathNode* CPathFinder::AddNode()
+CPathNode* CPathFinder::AddNode(room_sector_s* sector)
 {
-    this->m_nodes.emplace_back(new CPathNode());
-    return this->m_nodes[this->m_nodes.size()-1];
+    this->m_nodes.emplace_back(new CPathNode(sector));
+    return this->m_nodes.back();
 }
 
-std::vector<CPathNode*> CPathFinder::GetResultPath()
+/*
+ * Returns result path found.
+ */
+
+std::vector<CPathNode*>* CPathFinder::GetResultPath()
 {
-    return this->m_resultPath;
+    return &this->m_resultPath;
 }
