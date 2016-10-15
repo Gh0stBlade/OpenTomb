@@ -361,6 +361,7 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
 
     if(z == 1)
     {
+        #if 0
         room_sector_s* sector_below = current_sector->sector_below;
         if(sector_below != nullptr)
         {
@@ -372,9 +373,11 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         {
             return nullptr;
         }
+        #endif
     }
     else if(z == 2)
     {
+        #if 0
         room_sector_s* sector_above = current_sector->sector_above;
         if(sector_above != nullptr)
         {
@@ -386,6 +389,7 @@ CPathNode* CPathFinder::GetNeighbourNode(short x, short y, short z, CPathNode* c
         {
             return nullptr;
         }
+        #endif
     }
 
     //We don't want to process any out of bound sectors (this should never happen)
@@ -554,7 +558,7 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
             }
         }
 
-        room_sector_s* neighbour_sector_below = neighbour_sector->sector_below;
+        room_sector_s* neighbour_sector_below = Room_GetSectorRaw(current_sector->room_below, current_sector->pos);;
         int next_floor = 0;
         int current_floor = current_sector->floor;
         while(neighbour_sector_below)
@@ -566,13 +570,13 @@ bool CPathFinder::IsValidNeighbour(CPathNode* current_node, CPathNode* neighbour
             }
             else
             {
-                if(neighbour_sector_below->sector_below != nullptr)
+                if(Room_GetSectorRaw(neighbour_sector_below->room_below, neighbour_sector_below->pos) != nullptr)
                 {
                     return false;
                 }
             }
 
-            neighbour_sector_below = neighbour_sector_below->sector_below;
+            neighbour_sector_below = Room_GetSectorRaw(neighbour_sector_below->room_below, neighbour_sector_below->pos);
         }
 #endif
     }
