@@ -691,7 +691,7 @@ void Game_Frame(float time)
         Game_ApplyControls(player);
     }
 
-    Cam_PlayFlyBy(time);
+    Cam_PlayFlyBy(&engine_camera_state, time);
 
     if(is_character)
     {
