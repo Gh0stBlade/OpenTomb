@@ -101,8 +101,9 @@
 // Activation mask operation can be either XOR (for switch triggers) or OR (for any
 // other types of triggers).
 
-#define TRIGGER_OP_OR  0
-#define TRIGGER_OP_XOR 1
+#define TRIGGER_OP_OR       0
+#define TRIGGER_OP_XOR      1
+#define TRIGGER_OP_AND_INV  2
 
 // Entity activation response
 #define ENTITY_TRIGGERING_ACTIVATED    (0)
@@ -139,7 +140,6 @@ typedef struct trigger_header_s
 }trigger_header_t, *trigger_header_p;
 
 
-void Trigger_BuildScripts(trigger_header_p trigger, uint32_t trigger_index, const char *file_name);
 void Trigger_DoCommands(trigger_header_p trigger, struct entity_s *ent);
 
 void Trigger_TrigMaskToStr(char buf[8], uint8_t flag);

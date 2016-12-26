@@ -6,8 +6,8 @@ extern "C" {
 
 #include "core/gl_text.h"
 #include "core/console.h"
+#include "script/script.h"
 #include "gameflow.h"
-#include "script.h"
 
 #include <assert.h>
 
@@ -115,9 +115,15 @@ const char* CGameflow::getCurrentLevelName()
 }
 
 
-const char* CGameflow::getCurrentLevelPath()
+const char* CGameflow::getCurrentLevelPathGlobal()
 {
     return this->m_currentLevelPath;
+}
+
+
+const char* CGameflow::getCurrentLevelPathLocal()
+{
+    return this->m_currentLevelPath + strlen(Engine_GetBasePath());
 }
 
 

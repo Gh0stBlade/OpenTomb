@@ -18,15 +18,14 @@ extern "C" {
 
 #define SYS_SCREEN_METERING_RESOLUTION (1000.0f)
 
+
 typedef struct screen_info_s
 {
     int16_t     x;
     int16_t     y;
-    int16_t     w;
-    int16_t     h;
-    GLfloat     w_unit;   // Metering unit.
-    GLfloat     h_unit;   // Metering unit.
-
+    int16_t     w;  
+    int16_t     h;  
+    
     float       fps;
     float       fov;
     float       scale_factor;

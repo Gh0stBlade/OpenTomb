@@ -25,6 +25,7 @@ extern "C" {
 #include "core/gl_text.h"
 #include "render/camera.h"
 #include "render/render.h"
+#include "script/script.h"
 #include "vt/vt_level.h"
 #include "game.h"
 #include "audio.h"
@@ -36,7 +37,6 @@ extern "C" {
 #include "room.h"
 #include "world.h"
 #include "resource.h"
-#include "script.h"
 #include "engine.h"
 #include "physics.h"
 #include "controls.h"
@@ -54,6 +54,7 @@ static SDL_GLContext           sdl_gl_context = 0;
 static ALCdevice              *al_device      = NULL;
 static ALCcontext             *al_context     = NULL;
 
+static char                     base_path[1024] = {0};
 static volatile int             engine_done   = 0;
 static int                      engine_set_zero_time = 0;
 float time_scale = 1.0f;
@@ -75,6 +76,8 @@ engine_container_p Container_Create()
     engine_container_p ret;
 
     ret = (engine_container_p)malloc(sizeof(engine_container_t));
+    ret->collision_group = COLLISION_GROUP_KINEMATIC;
+    ret->collision_mask = COLLISION_MASK_ALL;
     ret->next = NULL;
     ret->object = NULL;
     ret->object_type = 0;
@@ -120,11 +123,28 @@ void Engine_Start(int argc, char **argv)
             }
             ++i;
         }
-        else if(0 == strncmp(argv[i], "-data_path", 10))
+        else if(0 == strncmp(argv[i], "-base_path", 10))
         {
             if(i + 1 < argc)
             {
-                printf("data path = \"%s\"\n", argv[i + 1]);
+                strncpy(base_path, argv[i + 1], sizeof(base_path) - 1);
+                if(base_path[0])
+                {
+                    char *ch = base_path;
+                    for(; *ch; ++ch)
+                    {
+                        if(*ch == '\\')
+                        {
+                            *ch = '/';
+                        }
+                    }
+                    if(*(ch - 1) != '/')
+                    {
+                        *ch = '/';
+                        ++ch;
+                        *ch = 0;
+                    }
+                }
             }
             ++i;
         }
@@ -133,7 +153,7 @@ void Engine_Start(int argc, char **argv)
             puts("usage:");
             puts("-config \"path_to_config_file\"");
             puts("-autoexec \"path_to_autoexec_file\"");
-            puts("-base_path \"path_to_base_folder_location --NOT IMPLEMENTED-- (contains data, resource, save and script folders)\"");
+            puts("-base_path \"path_to_base_folder_location (contains data, resource, save and script folders)\"");
             exit(0);
         }
     }
@@ -231,6 +251,12 @@ void Engine_Shutdown(int val)
     SDL_Quit();
 
     exit(val);
+}
+
+
+const char *Engine_GetBasePath()
+{
+    return base_path;
 }
 
 
@@ -512,6 +538,8 @@ void Engine_LoadConfig(const char *filename)
         {
             luaL_openlibs(lua);
             lua_register(lua, "bind", lua_BindKey);                             // get and set key bindings
+            lua_pushstring(lua, Engine_GetBasePath());
+            lua_setglobal(lua, "base_path");
             luaL_dofile(lua, filename);
 
             Script_ParseScreen(lua, &screen_info);
@@ -545,7 +573,7 @@ void Engine_Display()
         Cam_RecalcClipPlanes(&engine_camera);
         // GL_VERTEX_ARRAY | GL_COLOR_ARRAY
 
-        screen_info.debug_view_state %= 4;
+        screen_info.debug_view_state %= 5;
         if(screen_info.debug_view_state)
         {
             ShowDebugInfo();
@@ -582,14 +610,13 @@ void Engine_GLSwapWindow()
 
 void Engine_Resize(int nominalW, int nominalH, int pixelsW, int pixelsH)
 {
+    const float scale_coeff = 1024.0f;
     screen_info.w = nominalW;
     screen_info.h = nominalH;
 
-    screen_info.w_unit = (float)nominalW / SYS_SCREEN_METERING_RESOLUTION;
-    screen_info.h_unit = (float)nominalH / SYS_SCREEN_METERING_RESOLUTION;
-    screen_info.scale_factor = (screen_info.w < screen_info.h) ? (screen_info.h_unit) : (screen_info.w_unit);
+    screen_info.scale_factor = (screen_info.w < screen_info.h) ? (screen_info.h / scale_coeff) : (screen_info.w / scale_coeff);
 
-    GLText_UpdateResize(screen_info.scale_factor);
+    GLText_UpdateResize(screen_info.w, screen_info.h, screen_info.scale_factor);
     Con_UpdateResize();
     Gui_UpdateResize();
 
@@ -909,7 +936,7 @@ void ShowDebugInfo()
                 if(ent && ent->character)
                 {
                     animation_frame_p anim = ent->bf->animations.model->animations + ent->bf->animations.current_animation;
-                    GLText_OutTextXY(30.0f, y += dy, "curr_st = %03d, next_st = %03d", ent->bf->animations.current_state, ent->bf->animations.next_state);
+                    GLText_OutTextXY(30.0f, y += dy, "curr_st = %03d, next_st = %03d", anim->state_id, ent->bf->animations.next_state);
                     GLText_OutTextXY(30.0f, y += dy, "curr_anim = %03d, curr_frame = %03d, next_anim = %03d, next_frame = %03d", ent->bf->animations.current_animation, ent->bf->animations.current_frame, ent->bf->animations.next_animation, ent->bf->animations.next_frame);
                     GLText_OutTextXY(30.0f, y += dy, "anim_next_anim = %03d, anim_next_frame = %03d", anim->next_anim->id, anim->next_frame);
                     GLText_OutTextXY(30.0f, y += dy, "posX = %f, posY = %f, posZ = %f", ent->transform[12], ent->transform[13], ent->transform[14]);
@@ -922,6 +949,11 @@ void ShowDebugInfo()
         case 2:
             {
                 entity_p ent = World_GetPlayer();
+
+                if(engine_camera.current_room)
+                {
+                    GLText_OutTextXY(30.0f, y += dy, "cam_room = (id = %d)", engine_camera.current_room->id);
+                }
                 if(ent && ent->self->room)
                 {
                     GLText_OutTextXY(30.0f, y += dy, "char_pos = (%.1f, %.1f, %.1f)", ent->transform[12 + 0], ent->transform[12 + 1], ent->transform[12 + 2]);
@@ -972,6 +1004,27 @@ void ShowDebugInfo()
             break;
 
         case 3:
+            {
+                entity_p ent = World_GetPlayer();
+                if(ent && ent->self->room)
+                {
+                    for(engine_container_p cont = ent->self->room->content->containers; cont; cont = cont->next)
+                    {
+                        if(cont->object_type == OBJECT_ENTITY)
+                        {
+                            entity_p e = (entity_p)cont->object;
+                            gl_text_line_p text = renderer.OutTextXYZ(e->transform[12 + 0], e->transform[12 + 1], e->transform[12 + 2], "(entity[0x%X])", e->id);
+                            if(text)
+                            {
+                                text->x_align = GLTEXT_ALIGN_CENTER;
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+
+        case 4:
             if(renderer.dynamicBSP)
             {
                 GLText_OutTextXY(30.0f, y += dy, "input polygons = %07d", renderer.dynamicBSP->GetInputPolygonsCount());
@@ -1040,13 +1093,12 @@ void Engine_GetLevelName(char *name, const char *path)
 }
 
 
-void Engine_GetLevelScriptName(int game_version, char *name, const char *postfix, uint32_t buf_size)
+void Engine_GetLevelScriptNameLocal(int game_version, char *name, const char *postfix, uint32_t buf_size)
 {
     char level_name[LEVEL_NAME_MAX_LEN];
-    Engine_GetLevelName(level_name, gameflow.getCurrentLevelPath());
+    Engine_GetLevelName(level_name, gameflow.getCurrentLevelPathLocal());
 
     name[0] = 0;
-
     strncat(name, "scripts/level/", buf_size);
 
     if(game_version < TR_II)
@@ -1112,9 +1164,16 @@ bool Engine_LoadPCLevel(const char *name)
 
 int Engine_LoadMap(const char *name)
 {
-    if(!Sys_FileFound(name, 0))
+    size_t map_len = strlen(name);
+    size_t base_len = strlen(base_path);
+    size_t buf_len = map_len + base_len + 1;
+    char map_name_buf[buf_len];
+    strncpy(map_name_buf, base_path, buf_len);
+    strncat(map_name_buf, name, buf_len);
+
+    if(!Sys_FileFound(map_name_buf, 0))
     {
-        Con_Warning("file not found: \"%s\"", name);
+        Con_Warning("file not found: \"%s\"", map_name_buf);
         return 0;
     }
 
@@ -1124,16 +1183,16 @@ int Engine_LoadMap(const char *name)
     Gui_DrawLoadScreen(0);
 
     // it is needed for "not in the game" levels or correct saves loading.
-    gameflow.setCurrentLevelPath(name);
+    gameflow.setCurrentLevelPath(map_name_buf);
 
     Gui_DrawLoadScreen(100);
 
 
     // Here we can place different platform-specific level loading routines.
-    switch(VT_Level::get_level_format(name))
+    switch(VT_Level::get_level_format(map_name_buf))
     {
         case LEVEL_FORMAT_PC:
-            if(!Engine_LoadPCLevel(name))
+            if(!Engine_LoadPCLevel(map_name_buf))
             {
                 return 0;
             }

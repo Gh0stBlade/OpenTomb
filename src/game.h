@@ -31,6 +31,7 @@ void Game_UpdateAllEntities(struct RedBlackNode_s *x);
 void Game_LoopEntities(struct RedBlackNode_s *x);
 void Game_UpdateAI(struct RedBlackNode_s *x);
 void Game_UpdateCharacters();
+void Game_UpdateAI();
 
 void Game_PlayFlyBy(uint32_t sequence_id, int once);
 void Game_SetCameraTarget(uint32_t entity_id, float timer);

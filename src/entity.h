@@ -16,6 +16,7 @@ struct physics_data_s;
 #define ENTITY_STATE_ENABLED                        (0x0001)    // Entity is enabled.
 #define ENTITY_STATE_ACTIVE                         (0x0002)    // Entity is animated.
 #define ENTITY_STATE_VISIBLE                        (0x0004)    // Entity is visible.
+#define ENTITY_STATE_COLLIDABLE                     (0x0008)    // Collisions enabled.
 
 #define ENTITY_TYPE_GENERIC                         (0x0000)    // Just an animating.
 #define ENTITY_TYPE_INTERACTIVE                     (0x0001)    // Can respond to other entity's commands.
@@ -92,8 +93,8 @@ typedef struct entity_s
 
     struct engine_container_s          *self;
 
-    float                               activation_offset[4];   // where we can activate object (dx, dy, dz, r)
-    
+    float                               activation_offset[4];       // where we can activate object (dx, dy, dz, r)
+    float                               activation_direction[4];    // direction_xyz, cos(lim)
     struct character_s                 *character;
 }entity_t, *entity_p;
 
@@ -105,11 +106,15 @@ void Entity_Disable(entity_p ent);
 void Entity_EnableCollision(entity_p ent);
 void Entity_DisableCollision(entity_p ent);
 void Entity_UpdateRoomPos(entity_p ent);
+void Entity_MoveToRoom(entity_p entity, struct room_s *new_room);
 
 void Entity_Frame(entity_p entity, float time);  // process frame + trying to change state
 
 void Entity_RebuildBV(entity_p ent);
 void Entity_UpdateTransform(entity_p entity);
+int  Entity_CanTrigger(entity_p activator, entity_p trigger);
+void Entity_RotateToTriggerZ(entity_p activator, entity_p trigger);
+void Entity_RotateToTrigger(entity_p activator, entity_p trigger);
 void Entity_CheckActivators(struct entity_s *ent);
 int  Entity_Activate(struct entity_s *entity_object, struct entity_s *entity_activator, uint16_t trigger_mask, uint16_t trigger_op, uint16_t trigger_lock, uint16_t trigger_timer);
 int  Entity_Deactivate(struct entity_s *entity_object, struct entity_s *entity_activator);
@@ -119,9 +124,9 @@ int  Entity_GetSubstanceState(entity_p entity);
 void Entity_UpdateRigidBody(struct entity_s *ent, int force);
 void Entity_GhostUpdate(struct entity_s *ent);
 
-int  Entity_GetPenetrationFixVector(struct entity_s *ent, float reaction[3], float move_global[3]);
-int  Entity_CheckNextPenetration(struct entity_s *ent, float move[3]);
-void Entity_FixPenetrations(struct entity_s *ent, float move[3]);
+int  Entity_GetPenetrationFixVector(struct entity_s *ent, float reaction[3], int16_t filter);
+int  Entity_CheckNextPenetration(struct entity_s *ent, float move[3], float reaction[3], int16_t filter);
+void Entity_FixPenetrations(struct entity_s *ent, float move[3], int16_t filter);
 
 void Entity_CheckCollisionCallbacks(entity_p ent);
 void Entity_DoAnimCommands(entity_p entity, struct ss_animation_s *ss_anim);
