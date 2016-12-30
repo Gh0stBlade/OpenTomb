@@ -37,7 +37,7 @@ void AI_UpdateEntity(entity_p entity)
     }
 
     //We can only continue if entity and targetEntity are valid entities.
-    if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE))
+    if((entity != NULL) && target_entity != NULL && (entity->state_flags & ENTITY_STATE_ACTIVE) && (entity->state_flags & ENTITY_STATE_VISIBLE))
     {
         CPathFinder* pathFinder = new CPathFinder(entity->current_sector, target_entity->current_sector);
         switch(entity->bf->animations.model->id)
