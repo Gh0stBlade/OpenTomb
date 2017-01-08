@@ -4,12 +4,12 @@
  * Default constructor, initialise CPathNode here.
  */
 
-CPathNode::CPathNode()
+CPathNode::CPathNode(room_sector_s* sector)
 {
     this->m_g = 0;
     this->m_h = 0;
-    this->m_parentNode = NULL;
-    this->m_sector = NULL;
+    this->m_parentNode = nullptr;
+    this->m_sector = sector;
 }
 
 /*
@@ -20,8 +20,8 @@ CPathNode::~CPathNode()
 {
     this->m_g = 0;
     this->m_h = 0;
-    this->m_parentNode = NULL;
-    this->m_sector = NULL;
+    this->m_parentNode = nullptr;
+    this->m_sector = nullptr;
 }
 
 /*
@@ -57,10 +57,7 @@ void CPathNode::SetParentNode(CPathNode* node)
 
 void CPathNode::SetSector(room_sector_s* sector)
 {
-    if(sector != NULL)
-    {
-        this->m_sector = sector;
-    }
+    this->m_sector = sector;
 }
 
 /*

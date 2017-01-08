@@ -11,6 +11,7 @@
 #include "../core/vmath.h"
 #include "../core/polygon.h"
 #include "../core/obb.h"
+#include "../script/script.h"
 #include "../vt/tr_versions.h"
 #include "camera.h"
 #include "render.h"
@@ -20,7 +21,6 @@
 #include "shader_manager.h"
 #include "../room.h"
 #include "../world.h"
-#include "../script.h"
 #include "../mesh.h"
 #include "../skeletal_model.h"
 #include "../entity.h"
@@ -230,7 +230,7 @@ void CRender::UpdateAnimTextures()
  */
 void CRender::GenWorldList(struct camera_s *cam)
 {
-    this->CleanList();                                                          // clear old render list
+    this->CleanList();
     this->dynamicBSP->Reset(m_anim_sequences);
     this->frustumManager->Reset();
     cam->frustum->next = NULL;
@@ -246,13 +246,13 @@ void CRender::GenWorldList(struct camera_s *cam)
     cam->current_room = curr_room;                                              // set camera's cuttent room pointer
     if(curr_room != NULL)                                                       // camera located in some room
     {
-        const float eps = 1.0f;
+        const float eps = 10.0f;
         portal_p p = curr_room->portals;
         curr_room->frustum = NULL;                                              // room with camera inside has no frustums!
         this->AddRoom(curr_room);                                               // room with camera inside adds to the render list immediately
         for(uint16_t i = 0; i < curr_room->portals_count; i++, p++)             // go through all start room portals
         {
-            room_p dest_room = Room_CheckFlip(p->dest_room);
+            room_p dest_room = p->dest_room->real_room;
             frustum_p last_frus = this->frustumManager->PortalFrustumIntersect(p, cam->frustum, cam);
             if(last_frus)
             {
@@ -260,10 +260,10 @@ void CRender::GenWorldList(struct camera_s *cam)
                 last_frus->parents_count = 1;                                   // created by camera
                 this->ProcessRoom(p, last_frus);                                // next start reccursion algorithm
             }
-            else if((fabs(vec3_plane_dist(p->norm, cam->gl_transform + 12)) <= eps) &&
-                (cam_pos[0] <= dest_room->bb_max[0] + eps) && (cam_pos[0] >= dest_room->bb_min[0] - eps) &&
-                (cam_pos[1] <= dest_room->bb_max[1] + eps) && (cam_pos[1] >= dest_room->bb_min[1] - eps) &&
-                (cam_pos[2] <= dest_room->bb_max[2] + eps) && (cam_pos[2] >= dest_room->bb_min[2] - eps))
+            else if((cam_pos[0] <= dest_room->bb_max[0] + eps) && (cam_pos[0] >= dest_room->bb_min[0] - eps) &&
+                    (cam_pos[1] <= dest_room->bb_max[1] + eps) && (cam_pos[1] >= dest_room->bb_min[1] - eps) &&
+                    (cam_pos[2] <= dest_room->bb_max[2] + eps) && (cam_pos[2] >= dest_room->bb_min[2] - eps) &&
+                    !Room_IsInOverlappedRoomsList(curr_room, dest_room))
             {
                 portal_p np = dest_room->portals;
                 dest_room->frustum = NULL;                                      // room with camera inside has no frustums!
@@ -271,51 +271,13 @@ void CRender::GenWorldList(struct camera_s *cam)
                 {
                     for(uint16_t ii = 0; ii < dest_room->portals_count; ii++, np++)// go through all start room portals
                     {
-                        room_p ndest_room = Room_CheckFlip(np->dest_room);
+                        room_p ndest_room = np->dest_room->real_room;
                         frustum_p last_frus = this->frustumManager->PortalFrustumIntersect(np, cam->frustum, cam);
                         if(last_frus)
                         {
                             this->AddRoom(ndest_room);                          // portal destination room
                             last_frus->parents_count = 1;                       // created by camera
                             this->ProcessRoom(np, last_frus);                   // next start reccursion algorithm
-                        }
-                    }
-                }
-            }
-        }
-
-        if(curr_room->base_room)
-        {
-            p = curr_room->base_room->portals;
-            for(uint16_t i = 0; i < curr_room->base_room->portals_count; i++, p++)// go through all start room portals
-            {
-                room_p dest_room = Room_CheckFlip(p->dest_room);
-                frustum_p last_frus = this->frustumManager->PortalFrustumIntersect(p, cam->frustum, cam);
-                if(last_frus)
-                {
-                    this->AddRoom(dest_room);                                   // portal destination room
-                    last_frus->parents_count = 1;                               // created by camera
-                    this->ProcessRoom(p, last_frus);                            // next start reccursion algorithm
-                }
-                else if((fabs(vec3_plane_dist(p->norm, cam->gl_transform + 12)) <= eps) &&
-                    (cam_pos[0] <= dest_room->bb_max[0] + eps) && (cam_pos[0] >= dest_room->bb_min[0] - eps) &&
-                    (cam_pos[1] <= dest_room->bb_max[1] + eps) && (cam_pos[1] >= dest_room->bb_min[1] - eps) &&
-                    (cam_pos[2] <= dest_room->bb_max[2] + eps) && (cam_pos[2] >= dest_room->bb_min[2] - eps))
-                {
-                    portal_p np = dest_room->portals;
-                    dest_room->frustum = NULL;                                  // room with camera inside has no frustums!
-                    if(this->AddRoom(dest_room))                                // room with camera inside adds to the render list immediately
-                    {
-                        for(uint16_t ii = 0; ii < dest_room->portals_count; ii++, np++)// go through all start room portals
-                        {
-                            room_p ndest_room = Room_CheckFlip(np->dest_room);
-                            frustum_p last_frus = this->frustumManager->PortalFrustumIntersect(np, cam->frustum, cam);
-                            if(last_frus)
-                            {
-                                this->AddRoom(ndest_room);                      // portal destination room
-                                last_frus->parents_count = 1;                   // created by camera
-                                this->ProcessRoom(np, last_frus);               // next start reccursion algorithm
-                            }
                         }
                     }
                 }
@@ -329,7 +291,7 @@ void CRender::GenWorldList(struct camera_s *cam)
         {
             if(Frustum_IsAABBVisible(curr_room->bb_min, curr_room->bb_max, cam->frustum))
             {
-                this->AddRoom(Room_CheckFlip(curr_room));
+                this->AddRoom(curr_room->real_room);
             }
         }
     }
@@ -363,12 +325,6 @@ void CRender::DrawList()
 
         m_active_texture = 0;
         this->DrawSkyBox(m_camera->gl_view_proj_mat);
-        entity_p player = World_GetPlayer();
-
-        if(player)
-        {
-            this->DrawEntity(player, m_camera->gl_view_mat, m_camera->gl_view_proj_mat);
-        }
 
         /*
          * room rendering
@@ -431,19 +387,6 @@ void CRender::DrawList()
             }
         }
 
-        if(player && (player->bf->animations.model->transparency_flags == MESH_HAS_TRANSPARENCY))
-        {
-            float tr[16];
-            for(uint16_t j = 0; j < player->bf->bone_tag_count; j++)
-            {
-                if(player->bf->bone_tags[j].mesh_base->transparency_polygons != NULL)
-                {
-                    Mat4_Mat4_mul(tr, player->transform, player->bf->bone_tags[j].full_transform);
-                    dynamicBSP->AddNewPolygonList(player->bf->bone_tags[j].mesh_base->transparency_polygons, tr, m_camera->frustum);
-                }
-            }
-        }
-
         if(dynamicBSP->m_root->polygons_front && (dynamicBSP->m_vbo != 0))
         {
             const unlit_tinted_shader_description *shader = shaderManager->getRoomShader(false, false);
@@ -477,11 +420,6 @@ void CRender::DrawListDebugLines()
     if(r_flags && m_camera)
     {
         debugDrawer->SetDrawFlags(r_flags);
-
-        if(World_GetPlayer())
-        {
-            debugDrawer->DrawEntityDebugLines(World_GetPlayer());
-        }
 
         /*
          * Render world debug information
@@ -968,7 +906,7 @@ void CRender::DrawRoom(struct room_s *room, const float modelViewMatrix[16], con
     {
         for(uint16_t i = 0; i < room->overlapped_room_list_size; i++)
         {
-            if(room->overlapped_room_list[i]->is_in_r_list)
+            if(room->overlapped_room_list[i]->real_room->is_in_r_list)
             {
                 need_stencil = true;
                 break;
@@ -1039,6 +977,13 @@ void CRender::DrawRoom(struct room_s *room, const float modelViewMatrix[16], con
         this->DrawMesh(room->content->mesh, NULL, NULL);
     }
 
+#if STENCIL_FRUSTUM
+    if(need_stencil)
+    {
+        qglDisable(GL_STENCIL_TEST);
+    }
+#endif
+
     if (room->content->static_mesh_count > 0)
     {
         qglUseProgramObjectARB(shaderManager->getStaticMeshShader()->program);
@@ -1081,15 +1026,14 @@ void CRender::DrawRoom(struct room_s *room, const float modelViewMatrix[16], con
 
     for(uint16_t ni = 0; ni < room->near_room_list_size; ni++)
     {
-        room_p near_room = room->near_room_list[ni];
-        near_room = (!near_room->active && near_room->alternate_room) ? (near_room->alternate_room) : (near_room);
-        if(near_room->active && !room->near_room_list[ni]->is_in_r_list)
+        room_p near_room = room->near_room_list[ni]->real_room;
+        if(!room->near_room_list[ni]->is_in_r_list)
         {
             if (near_room->content->static_mesh_count > 0)
             {
                 for(uint32_t si = 0; si < near_room->content->static_mesh_count; si++)
                 {
-                    if(OBB_OBB_Test(near_room->content->static_mesh[si].obb, room->obb) &&
+                    if(OBB_OBB_Test(near_room->content->static_mesh[si].obb, room->obb, 0.0f) &&
                        Frustum_IsOBBVisibleInFrustumList(near_room->content->static_mesh[si].obb, (room->frustum) ? (room->frustum) : (m_camera->frustum)) &&
                        (!near_room->content->static_mesh[si].hide || (r_flags & R_DRAW_DUMMY_STATICS)))
                     {
@@ -1118,7 +1062,7 @@ void CRender::DrawRoom(struct room_s *room, const float modelViewMatrix[16], con
                 {
                 case OBJECT_ENTITY:
                     ent = (entity_p)cont->object;
-                    if(OBB_OBB_Test(ent->obb, room->obb) &&
+                    if(OBB_OBB_Test(ent->obb, room->obb, 0.0f) &&
                        Frustum_IsOBBVisibleInFrustumList(ent->obb, (room->frustum) ? (room->frustum) : (m_camera->frustum)))
                     {
                         this->DrawEntity(ent, modelViewMatrix, modelViewProjectionMatrix);
@@ -1128,13 +1072,6 @@ void CRender::DrawRoom(struct room_s *room, const float modelViewMatrix[16], con
             }
         }
     }
-
-#if STENCIL_FRUSTUM
-    if(need_stencil)
-    {
-        qglDisable(GL_STENCIL_TEST);
-    }
-#endif
 }
 
 
@@ -1217,7 +1154,7 @@ int  CRender::AddRoom(struct room_s *room)
 {
     int ret = 0;
 
-    if(!room->is_in_r_list && room->active)
+    if(!room->is_in_r_list)
     {
         float dist, centre[3];
         centre[0] = (room->bb_min[0] + room->bb_max[0]) / 2;
@@ -1254,43 +1191,26 @@ int  CRender::AddRoom(struct room_s *room)
 int CRender::ProcessRoom(struct portal_s *portal, struct frustum_s *frus)
 {
     int ret = 0;
-    room_p room = portal->dest_room;
-    room_p src_room = portal->current_room;
+    room_p room = portal->dest_room->real_room;
+
+    if(room->is_in_r_list && (room->frustum == NULL))
+    {
+        return 0;
+    }
 
     for(uint16_t i = 0; i < room->portals_count; i++)
     {
         portal_p p = room->portals + i;
-        room_p dest_room = Room_CheckFlip(p->dest_room);
-        if(dest_room && (dest_room != src_room))   // do not go back
+        room_p dest_room = p->dest_room->real_room;
+        frustum_p gen_frus = frustumManager->PortalFrustumIntersect(p, frus, m_camera);  // backface portals are filtered here
+        if(gen_frus)
         {
-            frustum_p gen_frus = frustumManager->PortalFrustumIntersect(p, frus, m_camera);
-            if(gen_frus)
-            {
-                ret++;
-                this->AddRoom(dest_room);
-                this->ProcessRoom(p, gen_frus);
-            }
+            ret++;
+            this->AddRoom(dest_room);
+            this->ProcessRoom(p, gen_frus);
         }
     }
 
-    if(room->base_room)
-    {
-        for(uint16_t i = 0; i < room->base_room->portals_count; i++)
-        {
-            portal_p p = room->base_room->portals + i;
-            room_p dest_room = Room_CheckFlip(p->dest_room);
-            if(dest_room && (dest_room != src_room))      // do not go back
-            {
-                frustum_p gen_frus = frustumManager->PortalFrustumIntersect(p, frus, m_camera);
-                if(gen_frus)
-                {
-                    ret++;
-                    this->AddRoom(Room_CheckFlip(dest_room));
-                    this->ProcessRoom(p, gen_frus);
-                }
-            }
-        }
-    }
     return ret;
 }
 

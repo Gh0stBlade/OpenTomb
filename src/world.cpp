@@ -21,6 +21,7 @@ extern "C" {
 #include "render/frustum.h"
 #include "render/render.h"
 #include "render/bordered_texture_atlas.h"
+#include "script/script.h"
 #include "vt/vt_level.h"
 #include "audio.h"
 #include "room.h"
@@ -32,7 +33,6 @@ extern "C" {
 #include "anim_state_control.h"
 #include "engine.h"
 #include "physics.h"
-#include "script.h"
 #include "gui.h"
 #include "gameflow.h"
 #include "resource.h"
@@ -55,6 +55,7 @@ extern "C" {
     uint32_t                        flip_count;             // Number of flips
     uint8_t                        *flip_map;               // Flipped room activity array.
     uint8_t                        *flip_state;             // Flipped room state array.
+    uint16_t                        global_flip_state;
 
     bordered_texture_atlas         *tex_atlas;
     uint32_t                        tex_count;              // Number of textures
@@ -128,7 +129,7 @@ void World_GenSpritesBuffer();
 void World_GenRoomProperties(class VT_Level *tr);
 void World_GenRoomCollision();
 void World_FixRooms();
-void World_MakeEntityItems(struct RedBlackNode_s *n);            // Assign pickup functions to previously created base items.
+void World_MakeEntityPickable(struct RedBlackNode_s *n, entity_p ent, int *done);          // Assign pickup functions to previously created base items.
 
 
 void World_Prepare()
@@ -145,6 +146,7 @@ void World_Prepare()
     global_world.flip_map = NULL;
     global_world.flip_state = NULL;
     global_world.flip_count = 0;
+    global_world.global_flip_state = 0;
     global_world.textures = NULL;
     global_world.type = 0;
     global_world.entity_tree = NULL;
@@ -242,7 +244,7 @@ void World_Open(class VT_Level *tr)
 
     // Generate entity functions.
 
-    if(global_world.entity_tree->root)
+    if(global_world.entity_tree && global_world.entity_tree->root)
     {
         World_GenEntityFunctions(global_world.entity_tree->root);
     }
@@ -259,6 +261,7 @@ void World_Open(class VT_Level *tr)
 
     // Fix initial room states
     World_FixRooms();
+    World_UpdateFlipCollisions();
     Gui_DrawLoadScreen(970);
 
     if(global_world.tex_atlas)
@@ -294,8 +297,11 @@ void World_Clear()
     }
 
     /* entity empty must be done before rooms destroy */
-    RB_Free(global_world.entity_tree);
-    global_world.entity_tree = NULL;
+    if(global_world.entity_tree)
+    {
+        RB_Free(global_world.entity_tree);
+        global_world.entity_tree = NULL;
+    }
 
     /* Now we can delete physics misc objects */
     Physics_CleanUpObjects();
@@ -311,6 +317,7 @@ void World_Clear()
     if(global_world.flip_count)
     {
         global_world.flip_count = 0;
+        global_world.global_flip_state = 0;
         free(global_world.flip_map);
         free(global_world.flip_state);
         global_world.flip_map = NULL;
@@ -434,16 +441,17 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
     if(global_world.entity_tree)
     {
         skeletal_model_p model = World_GetModelByID(model_id);
-        if(model != NULL)
+        int done = 0;
+        if(model)
         {
             entity_p entity = World_GetEntityByID(id);
             RedBlackNode_p node = global_world.entity_tree->root;
 
-            if(entity != NULL)
+            if(entity)
             {
                 if(pos != NULL)
                 {
-                    vec3_copy(entity->transform+12, pos);
+                    vec3_copy(entity->transform + 12, pos);
                 }
                 if(ang != NULL)
                 {
@@ -452,19 +460,20 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
                 }
                 if(room_id < global_world.rooms_count)
                 {
-                    entity->self->room = global_world.rooms + room_id;
-                    entity->current_sector = Room_GetSectorRaw(entity->self->room, entity->transform+12);
+                    Entity_MoveToRoom(entity, global_world.rooms + room_id);
+                    entity->current_sector = Room_GetSectorRaw(entity->self->room, entity->transform + 12);
                 }
                 else
                 {
+                    Room_RemoveObject(entity->self->room, entity->self);
                     entity->self->room = NULL;
                 }
+                World_MakeEntityPickable(global_world.items_tree->root, entity, &done);
 
                 return entity->id;
             }
 
             entity = Entity_Create();
-
             if(id < 0)
             {
                 entity->id = 0;
@@ -481,7 +490,7 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
 
             if(pos != NULL)
             {
-                vec3_copy(entity->transform+12, pos);
+                vec3_copy(entity->transform + 12, pos);
             }
             if(ang != NULL)
             {
@@ -491,6 +500,7 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
             if(room_id < global_world.rooms_count)
             {
                 entity->self->room = global_world.rooms + room_id;
+                Room_AddObject(entity->self->room, entity->self);
                 entity->current_sector = Room_GetSectorRaw(entity->self->room, entity->transform + 12);
             }
             else
@@ -499,12 +509,13 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
             }
 
             entity->type_flags     = ENTITY_TYPE_SPAWNED;
-            entity->state_flags    = ENTITY_STATE_ENABLED | ENTITY_STATE_ACTIVE | ENTITY_STATE_VISIBLE;
+            entity->state_flags    = ENTITY_STATE_ENABLED | ENTITY_STATE_ACTIVE | ENTITY_STATE_VISIBLE | ENTITY_STATE_COLLIDABLE;
             entity->trigger_layout = 0x00;
             entity->OCB            = 0x00;
             entity->timer          = 0.0;
 
-            entity->self->collision_type = COLLISION_NONE;
+            entity->self->collision_group = COLLISION_GROUP_KINEMATIC;
+            entity->self->collision_mask = COLLISION_MASK_ALL;
             entity->self->collision_shape = COLLISION_SHAPE_TRIMESH;
             entity->move_type          = 0x0000;
             entity->move_type          = 0;
@@ -520,12 +531,13 @@ uint32_t World_SpawnEntity(uint32_t model_id, uint32_t room_id, float pos[3], fl
                 Room_AddObject(entity->self->room, entity->self);
             }
             World_AddEntity(entity);
+            World_MakeEntityPickable(global_world.items_tree->root, entity, &done);
 
             return entity->id;
         }
     }
 
-    return 0xFFFFFFFF;
+    return ENTITY_ID_NONE;
 }
 
 
@@ -599,6 +611,13 @@ struct static_camera_sink_s *World_GetstaticCameraSink(uint32_t id)
         return global_world.cameras_sinks + id;
     }
     return NULL;
+}
+
+
+void World_GetSkeletalModelsInfo(struct skeletal_model_s **models, uint32_t *models_count)
+{
+    *models = global_world.skeletal_models;
+    *models_count = global_world.skeletal_models_count;
 }
 
 
@@ -793,15 +812,21 @@ struct room_s *World_GetRoomByID(uint32_t id)
 
 struct room_s *World_FindRoomByPos(float pos[3])
 {
+    const float z_margin = TR_METERING_SECTORSIZE / 2.0f;
     room_p r = global_world.rooms;
     for(uint32_t i = 0; i < global_world.rooms_count; i++, r++)
     {
-        if(r->active &&
+        if((r == r->real_room) &&
            (pos[0] >= r->bb_min[0]) && (pos[0] < r->bb_max[0]) &&
            (pos[1] >= r->bb_min[1]) && (pos[1] < r->bb_max[1]) &&
-           (pos[2] >= r->bb_min[2]) && (pos[2] < r->bb_max[2]))
+           (pos[2] >= r->bb_min[2] - z_margin) && (pos[2] < r->bb_max[2]))
         {
-            return r;
+            room_sector_p orig_sector = Room_GetSectorRaw(r->real_room, pos);
+            if(orig_sector && orig_sector->portal_to_room)
+            {
+                return orig_sector->portal_to_room->real_room;
+            }
+            return r->real_room;
         }
     }
     return NULL;
@@ -815,47 +840,36 @@ struct room_s *World_FindRoomByPosCogerrence(float pos[3], struct room_s *old_ro
         return World_FindRoomByPos(pos);
     }
 
-    //old_room = Room_CheckFlip(old_room);
-
-    if(old_room->active &&
-       (pos[0] >= old_room->bb_min[0]) && (pos[0] < old_room->bb_max[0]) &&
-       (pos[1] >= old_room->bb_min[1]) && (pos[1] < old_room->bb_max[1]))
+    old_room = old_room->real_room;
+    room_sector_p orig_sector = Room_GetSectorRaw(old_room, pos);
+    if(orig_sector && orig_sector->portal_to_room)
     {
-        if((pos[2] >= old_room->bb_min[2]) && (pos[2] < old_room->bb_max[2]))
+        return orig_sector->portal_to_room->real_room;
+    }
+
+    if(orig_sector)
+    {
+        if(orig_sector->room_below && (pos[2] < orig_sector->room_below->bb_max[2]))
+        {
+            return orig_sector->room_below->real_room;
+        }
+        else if((pos[2] >= old_room->bb_min[2]) && (pos[2] < old_room->bb_max[2]))
         {
             return old_room;
         }
-        else if(pos[2] >= old_room->bb_max[2])
+        else if(orig_sector->room_above && (pos[2] >= orig_sector->room_above->bb_min[2]))
         {
-            room_sector_p orig_sector = Room_GetSectorRaw(old_room, pos);
-            if(orig_sector->sector_above != NULL)
-            {
-                return Room_CheckFlip(orig_sector->sector_above->owner_room);
-            }
-        }
-        else if(pos[2] < old_room->bb_min[2])
-        {
-            room_sector_p orig_sector = Room_GetSectorRaw(old_room, pos);
-            if(orig_sector->sector_below != NULL)
-            {
-                return Room_CheckFlip(orig_sector->sector_below->owner_room);
-            }
+            return orig_sector->room_above->real_room;
         }
     }
 
-    room_sector_p new_sector = Room_GetSectorRaw(old_room, pos);
-    if((new_sector != NULL) && new_sector->portal_to_room)
-    {
-        return Room_CheckFlip(new_sector->portal_to_room);
-    }
-
+    const float z_margin = TR_METERING_SECTORSIZE / 2.0f;
     for(uint16_t i = 0; i < old_room->near_room_list_size; i++)
     {
-        room_p r = Room_CheckFlip(old_room->near_room_list[i]);
-        if(r->active &&
-           (pos[0] >= r->bb_min[0]) && (pos[0] < r->bb_max[0]) &&
-           (pos[1] >= r->bb_min[1]) && (pos[1] < r->bb_max[1]) &&
-           (pos[2] >= r->bb_min[2]) && (pos[2] < r->bb_max[2]))
+        room_p r = old_room->near_room_list[i]->real_room;
+        if((pos[0] >= r->bb_min[0] + TR_METERING_SECTORSIZE) && (pos[0] < r->bb_max[0] - TR_METERING_SECTORSIZE) &&
+           (pos[1] >= r->bb_min[1] + TR_METERING_SECTORSIZE) && (pos[1] < r->bb_max[1] - TR_METERING_SECTORSIZE) &&
+           (pos[2] >= r->bb_min[2] - z_margin) && (pos[2] < r->bb_max[2]))
         {
             return r;
         }
@@ -885,21 +899,22 @@ void World_BuildNearRoomsList(struct room_s *room)
     room->near_room_list_size = 0;
     room->near_room_list = (room_t**)Sys_GetTempMem(global_world.rooms_count * sizeof(room_t*));
 
-    portal_p p = room->portals;
-    for(uint16_t i = 0; i < room->portals_count; i++, p++)
+    room_sector_p rs = room->sectors;
+    for(uint32_t i = 0; i < room->sectors_count; i++, rs++)
     {
-        Room_AddToNearRoomsList(room, p->dest_room);
-    }
-
-    uint16_t nc1 = room->near_room_list_size;
-
-    for(uint16_t i = 0; i < nc1; i++)
-    {
-        room_p r = room->near_room_list[i];
-        p = r->portals;
-        for(uint16_t j = 0; j < r->portals_count; j++, p++)
+        if(rs->portal_to_room)
         {
-            Room_AddToNearRoomsList(room, p->dest_room);
+            Room_AddToNearRoomsList(room, rs->portal_to_room->real_room);
+        }
+
+        if(rs->room_above)
+        {
+            Room_AddToNearRoomsList(room, rs->room_above->real_room);
+        }
+
+        if(rs->room_below)
+        {
+            Room_AddToNearRoomsList(room, rs->room_below->real_room);
         }
     }
 
@@ -947,8 +962,89 @@ void World_BuildOverlappedRoomsList(struct room_s *room)
 /*
  * WORLD  TRIGGERING  FUNCTIONS
  */
+
+void World_UpdateFlipCollisions()
+{
+    room_p r = global_world.rooms;
+    for(uint32_t i = 0; i < global_world.rooms_count; ++i, ++r)
+    {
+        if(r->real_room == r)
+        {
+            int num_tweens = r->sectors_count * 4;
+            size_t buff_size = num_tweens * sizeof(sector_tween_t);
+            sector_tween_p room_tween = (sector_tween_p)Sys_GetTempMem(buff_size);
+
+            // Clear previous dynamic tweens
+            Physics_DeleteObject(r->content->physics_alt_tween);
+            r->content->physics_alt_tween = NULL;
+
+            // Clear tween array.
+            for(int j = 0; j < num_tweens; j++)
+            {
+                room_tween[j].ceiling_tween_type = TR_SECTOR_TWEEN_TYPE_NONE;
+                room_tween[j].floor_tween_type   = TR_SECTOR_TWEEN_TYPE_NONE;
+            }
+
+            // Most difficult task with converting floordata collision to trimesh collision is
+            // building inbetween polygons which will block out gaps between sector heights.
+            num_tweens = Res_Sector_GenDynamicTweens(r, room_tween);
+            if(num_tweens > 0)
+            {
+                r->content->physics_alt_tween = Physics_GenRoomRigidBody(r, NULL, 0, room_tween, num_tweens);
+                if(r->content->physics_alt_tween)
+                {
+                    Physics_EnableObject(r->content->physics_alt_tween);
+                }
+            }
+
+            Sys_ReturnTempMem(buff_size);
+        }
+    }
+}
+
+
+uint16_t World_GetGlobalFlipState()
+{
+    return global_world.global_flip_state;
+}
+
+
+void World_SetGlobalFlipState(int flip_state)
+{
+    room_p current_room = global_world.rooms;
+    flip_state &= 0x00000001;
+    for(uint32_t i = 0; i < global_world.rooms_count; i++, current_room++)
+    {
+        if(current_room->alternate_room_next || current_room->alternate_room_prev)
+        {
+            bool is_cycled = false;
+            for(room_p room_it = current_room->alternate_room_next; room_it; room_it = room_it->alternate_room_next)
+            {
+                if(room_it == current_room)
+                {
+                    is_cycled = true;
+                    break;
+                }
+            }
+            if(current_room->alternate_room_next &&
+               (!is_cycled || (current_room->alternate_room_next != current_room->real_room)) &&
+               (( flip_state && !current_room->is_swapped) ||
+                (!flip_state &&  current_room->is_swapped)))
+            {
+                current_room->is_swapped = !current_room->is_swapped;
+                Room_DoFlip(current_room, current_room->alternate_room_next);
+                global_world.global_flip_state = flip_state;
+            }
+        }
+    }
+    World_UpdateFlipCollisions();
+}
+
+
 int World_SetFlipState(uint32_t flip_index, uint32_t flip_state)
 {
+    int ret = 0;
+
     if(flip_index >= global_world.flip_count)
     {
         Con_Warning("wrong flipmap index");
@@ -968,20 +1064,36 @@ int World_SetFlipState(uint32_t flip_index, uint32_t flip_state)
         {
             if(is_global_flip || (current_room->content->alternate_group == flip_index))
             {
-                if(flip_state)
+                bool is_cycled = false;
+                for(room_p room_it = current_room->alternate_room_next; room_it; room_it = room_it->alternate_room_next)
                 {
-                    Room_SwapRoomToAlternate(current_room);
+                    if(room_it == current_room)
+                    {
+                        is_cycled = true;
+                        break;
+                    }
                 }
-                else
+                if(current_room->alternate_room_next &&
+                   (!is_cycled || (current_room->alternate_room_next != current_room->real_room)) &&
+                   (( flip_state && !current_room->is_swapped) ||
+                    (!flip_state &&  current_room->is_swapped)))
                 {
-                    Room_SwapRoomToBase(current_room);
+                    current_room->is_swapped = !current_room->is_swapped;
+                    Room_DoFlip(current_room, current_room->alternate_room_next);
+                    ret = 1;
                 }
             }
         }
         global_world.flip_state[flip_index] = flip_state & 0x01;
+        global_world.global_flip_state = ret && is_global_flip && (flip_state & 0x01);
     }
 
-    return 0;
+    if(ret)
+    {
+        World_UpdateFlipCollisions();
+    }
+
+    return ret;
 }
 
 
@@ -996,6 +1108,10 @@ int World_SetFlipMap(uint32_t flip_index, uint8_t flip_mask, uint8_t flip_operat
     if(flip_operation == TRIGGER_OP_XOR)
     {
         global_world.flip_map[flip_index] ^= flip_mask;
+    }
+    else if(flip_operation == TRIGGER_OP_AND_INV)
+    {
+        global_world.flip_map[flip_index] &= ~flip_mask;
     }
     else
     {
@@ -1208,9 +1324,6 @@ int lua_SetSectorFlags(lua_State * lua)
 
 void World_ScriptsOpen()
 {
-    char temp_script_name[256];
-    Engine_GetLevelScriptName(global_world.version, temp_script_name, NULL, 256);
-
     global_world.level_script = luaL_newstate();
     if(global_world.level_script)
     {
@@ -1222,11 +1335,11 @@ void World_ScriptsOpen()
         lua_register(global_world.level_script, "setSectorPortal", lua_SetSectorPortal);
         lua_register(global_world.level_script, "setSectorFlags", lua_SetSectorFlags);
 
-        luaL_dofile(global_world.level_script, "scripts/staticmesh/staticmesh_script.lua");
-
-        if(Sys_FileFound(temp_script_name, 0))
+        Script_DoLuaFile(global_world.level_script, "scripts/staticmesh/staticmesh_script.lua");
         {
-            int lua_err = luaL_dofile(global_world.level_script, temp_script_name);
+            char temp_script_name[1024];
+            Engine_GetLevelScriptNameLocal(global_world.version, temp_script_name, NULL, sizeof(temp_script_name));
+            int lua_err = Script_DoLuaFile(global_world.level_script, temp_script_name);
             if(lua_err)
             {
                 Sys_DebugLog("lua_out.txt", "%s", lua_tostring(global_world.level_script, -1));
@@ -1242,15 +1355,8 @@ void World_ScriptsOpen()
     {
         luaL_openlibs(global_world.objects_flags_conf);
         Script_LoadConstants(global_world.objects_flags_conf);
-        int lua_err = luaL_loadfile(global_world.objects_flags_conf, "scripts/entity/entity_properties.lua");
-        if(lua_err)
-        {
-            Sys_DebugLog("lua_out.txt", "%s", lua_tostring(global_world.objects_flags_conf, -1));
-            lua_pop(global_world.objects_flags_conf, 1);
-            lua_close(global_world.objects_flags_conf);
-            global_world.objects_flags_conf = NULL;
-        }
-        lua_err = lua_pcall(global_world.objects_flags_conf, 0, 0, 0);
+        lua_register(global_world.objects_flags_conf, "print", lua_print);
+        int lua_err = Script_DoLuaFile(global_world.objects_flags_conf, "scripts/entity/entity_properties.lua");
         if(lua_err)
         {
             Sys_DebugLog("lua_out.txt", "%s", lua_tostring(global_world.objects_flags_conf, -1));
@@ -1265,15 +1371,8 @@ void World_ScriptsOpen()
     {
         luaL_openlibs(global_world.ent_ID_override);
         Script_LoadConstants(global_world.ent_ID_override);
-        int lua_err = luaL_loadfile(global_world.ent_ID_override, "scripts/entity/entity_model_ID_override.lua");
-        if(lua_err)
-        {
-            Sys_DebugLog("lua_out.txt", "%s", lua_tostring(global_world.ent_ID_override, -1));
-            lua_pop(global_world.ent_ID_override, 1);
-            lua_close(global_world.ent_ID_override);
-            global_world.ent_ID_override = NULL;
-        }
-        lua_err = lua_pcall(global_world.ent_ID_override, 0, 0, 0);
+        lua_register(global_world.ent_ID_override, "print", lua_print);
+        int lua_err = Script_DoLuaFile(global_world.ent_ID_override, "scripts/entity/entity_model_ID_override.lua");
         if(lua_err)
         {
             Sys_DebugLog("lua_out.txt", "%s", lua_tostring(global_world.ent_ID_override, -1));
@@ -1309,11 +1408,11 @@ void World_ScriptsClose()
 
 void World_AutoexecOpen()
 {
-    char temp_script_name[256];
-    Engine_GetLevelScriptName(global_world.version, temp_script_name, "_autoexec", 256);
+    char temp_script_name[1024];
+    Engine_GetLevelScriptNameLocal(global_world.version, temp_script_name, "_autoexec", sizeof(temp_script_name));
 
-    luaL_dofile(engine_lua, "scripts/autoexec.lua");    // do standart autoexec
-    luaL_dofile(engine_lua, temp_script_name);          // do level-specific autoexec
+    Script_DoLuaFile(engine_lua, "scripts/autoexec.lua");    // do standart autoexec
+    Script_DoLuaFile(engine_lua, temp_script_name);          // do level-specific autoexec
 }
 
 
@@ -1359,12 +1458,11 @@ void World_SetEntityModelProperties(struct entity_s *ent)
         {
             lua_pushinteger(global_world.objects_flags_conf, global_world.version);              // engine version
             lua_pushinteger(global_world.objects_flags_conf, ent->bf->animations.model->id);     // entity model id
-            if (lua_CallAndLog(global_world.objects_flags_conf, 2, 4, 0))
+            if (lua_CallAndLog(global_world.objects_flags_conf, 2, 3, 0))
             {
-                ent->self->collision_type = lua_tointeger(global_world.objects_flags_conf, -4);      // get collision type flag
-                ent->self->collision_shape = lua_tointeger(global_world.objects_flags_conf, -3);     // get collision shape flag
-                ent->bf->animations.model->hide = lua_tointeger(global_world.objects_flags_conf, -2);// get info about model visibility
-                ent->type_flags |= lua_tointeger(global_world.objects_flags_conf, -1);               // get traverse information
+                ent->self->collision_group = lua_tointeger(global_world.objects_flags_conf, -3);      // get collision type flag
+                ent->self->collision_shape = lua_tointeger(global_world.objects_flags_conf, -2);     // get collision shape flag
+                ent->bf->animations.model->hide = lua_tointeger(global_world.objects_flags_conf, -1);// get info about model visibility
             }
         }
         lua_settop(global_world.objects_flags_conf, top);
@@ -1378,29 +1476,31 @@ void World_SetEntityModelProperties(struct entity_s *ent)
         {
             lua_pushinteger(global_world.level_script, global_world.version);                // engine version
             lua_pushinteger(global_world.level_script, ent->bf->animations.model->id);       // entity model id
-            if (lua_CallAndLog(global_world.level_script, 2, 4, 0))                                 // call that function
+            if (lua_CallAndLog(global_world.level_script, 2, 3, 0))                                 // call that function
             {
-                if(!lua_isnil(global_world.level_script, -4))
-                {
-                    ent->self->collision_type = lua_tointeger(global_world.level_script, -4);        // get collision type flag
-                }
                 if(!lua_isnil(global_world.level_script, -3))
                 {
-                    ent->self->collision_shape = lua_tointeger(global_world.level_script, -3);       // get collision shape flag
+                    ent->self->collision_group = lua_tointeger(global_world.level_script, -3);        // get collision type flag
                 }
                 if(!lua_isnil(global_world.level_script, -2))
                 {
-                    ent->bf->animations.model->hide = lua_tointeger(global_world.level_script, -2);  // get info about model visibility
+                    ent->self->collision_shape = lua_tointeger(global_world.level_script, -2);       // get collision shape flag
                 }
                 if(!lua_isnil(global_world.level_script, -1))
                 {
-                    ent->type_flags &= ~(ENTITY_TYPE_TRAVERSE | ENTITY_TYPE_TRAVERSE_FLOOR);
-                    ent->type_flags |= lua_tointeger(global_world.level_script, -1);                 // get traverse information
+                    ent->bf->animations.model->hide = lua_tointeger(global_world.level_script, -1);  // get info about model visibility
                 }
             }
         }
         lua_settop(global_world.level_script, top);
     }
+
+    switch(ent->self->collision_group)
+    {
+        case COLLISION_GROUP_TRIGGERS:
+            ent->self->collision_mask = COLLISION_GROUP_CHARACTERS;
+            break;
+    };
 }
 
 
@@ -1417,7 +1517,7 @@ void World_SetStaticMeshProperties(struct static_mesh_s *r_static)
             {
                 if(!lua_isnil(global_world.level_script, -3))
                 {
-                    r_static->self->collision_type = lua_tointeger(global_world.level_script, -3);
+                    r_static->self->collision_group = lua_tointeger(global_world.level_script, -3);
                 }
                 if(!lua_isnil(global_world.level_script, -2))
                 {
@@ -1806,7 +1906,8 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
 
     room->flags = tr->rooms[room->id].flags;
     room->frustum = NULL;
-    room->active = 1;
+    room->is_in_r_list = 0;
+    room->is_swapped = 0;
 
     Mat4_E_macro(room->transform);
     room->transform[12] = tr->rooms[room->id].offset.x;                         // x = x;
@@ -1817,7 +1918,8 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
     room->self->next = NULL;
     room->self->room = room;
     room->self->object = room;
-    room->self->collision_type = COLLISION_TYPE_STATIC;
+    room->self->collision_group = COLLISION_GROUP_STATIC_ROOM;
+    room->self->collision_mask = COLLISION_MASK_ALL;
     room->self->collision_shape = COLLISION_SHAPE_TRIMESH;
     room->self->object_type = OBJECT_ROOM_BASE;
 
@@ -1827,6 +1929,7 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
     room->content = (room_content_p)malloc(sizeof(room_content_t));
     room->content->containers = NULL;
     room->content->physics_body = NULL;
+    room->content->physics_alt_tween = NULL;
     room->content->mesh = NULL;
     room->content->static_mesh = NULL;
     room->content->sprites = NULL;
@@ -1869,6 +1972,8 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
         r_static->self->room = room;
         r_static->self->object = room->content->static_mesh + i;
         r_static->self->object_type = OBJECT_STATIC_MESH;
+        r_static->self->collision_group = COLLISION_GROUP_STATIC_OBLECT;
+        r_static->self->collision_mask = COLLISION_MASK_ALL;
         r_static->object_id = tr_room->static_meshes[i].object_id;
         r_static->mesh = global_world.meshes + tr->mesh_indices[tr_static->mesh];
         r_static->pos[0] = tr_room->static_meshes[i].pos.x;
@@ -1916,11 +2021,7 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
            ((r_static->cbb_min[0] == r_static->cbb_min[1]) && (r_static->cbb_min[1] == r_static->cbb_min[2]) &&
             (r_static->cbb_max[0] == r_static->cbb_max[1]) && (r_static->cbb_max[1] == r_static->cbb_max[2])))
         {
-            r_static->self->collision_type = COLLISION_NONE;
-        }
-        else
-        {
-            r_static->self->collision_type = COLLISION_TYPE_STATIC;
+            r_static->self->collision_group = COLLISION_NONE;
         }
 
         // Set additional static mesh properties from level script override.
@@ -1985,9 +2086,9 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
         sector->index_x = i / room->sectors_y;
         sector->index_y = i % room->sectors_y;
 
-        sector->pos[0] = room->transform[12] + sector->index_x * TR_METERING_SECTORSIZE + 0.5 * TR_METERING_SECTORSIZE;
-        sector->pos[1] = room->transform[13] + sector->index_y * TR_METERING_SECTORSIZE + 0.5 * TR_METERING_SECTORSIZE;
-        sector->pos[2] = 0.5 * (tr_room->y_bottom + tr_room->y_top);
+        sector->pos[0] = room->transform[12] + sector->index_x * TR_METERING_SECTORSIZE + 0.5f * TR_METERING_SECTORSIZE;
+        sector->pos[1] = room->transform[13] + sector->index_y * TR_METERING_SECTORSIZE + 0.5f * TR_METERING_SECTORSIZE;
+        sector->pos[2] = 0.5f * (tr_room->y_bottom + tr_room->y_top);
 
         sector->owner_room = room;
         sector->trigger = NULL;
@@ -2117,44 +2218,43 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
     {
         r_dest = global_world.rooms + tr_portal->adjoining_room;
         p->vertex_count = 4;                                                    // in original TR all portals are axis aligned rectangles
-        p->vertex = (float*)malloc(3*p->vertex_count*sizeof(float));
+        p->vertex = (float*)malloc(3 * p->vertex_count * sizeof(float));
         p->dest_room = r_dest;
-        p->current_room = room;
-        TR_vertex_to_arr(p->vertex  , &tr_portal->vertices[3]);
-        vec3_add(p->vertex, p->vertex, room->transform+12);
-        TR_vertex_to_arr(p->vertex+3, &tr_portal->vertices[2]);
-        vec3_add(p->vertex+3, p->vertex+3, room->transform+12);
-        TR_vertex_to_arr(p->vertex+6, &tr_portal->vertices[1]);
-        vec3_add(p->vertex+6, p->vertex+6, room->transform+12);
-        TR_vertex_to_arr(p->vertex+9, &tr_portal->vertices[0]);
-        vec3_add(p->vertex+9, p->vertex+9, room->transform+12);
-        vec3_add(p->centre, p->vertex, p->vertex+3);
-        vec3_add(p->centre, p->centre, p->vertex+6);
-        vec3_add(p->centre, p->centre, p->vertex+9);
-        p->centre[0] /= 4.0;
-        p->centre[1] /= 4.0;
-        p->centre[2] /= 4.0;
+        TR_vertex_to_arr(p->vertex, &tr_portal->vertices[3]);
+        vec3_add(p->vertex, p->vertex, room->transform + 12);
+        TR_vertex_to_arr(p->vertex + 3, &tr_portal->vertices[2]);
+        vec3_add(p->vertex + 3, p->vertex + 3, room->transform + 12);
+        TR_vertex_to_arr(p->vertex + 6, &tr_portal->vertices[1]);
+        vec3_add(p->vertex + 6, p->vertex + 6, room->transform + 12);
+        TR_vertex_to_arr(p->vertex + 9, &tr_portal->vertices[0]);
+        vec3_add(p->vertex + 9, p->vertex + 9, room->transform + 12);
+        vec3_add(p->centre, p->vertex, p->vertex + 3);
+        vec3_add(p->centre, p->centre, p->vertex + 6);
+        vec3_add(p->centre, p->centre, p->vertex + 9);
+        p->centre[0] /= 4.0f;
+        p->centre[1] /= 4.0f;
+        p->centre[2] /= 4.0f;
         Portal_GenNormale(p);
 
         /*
          * Portal position fix...
          */
         // X_MIN
-        if((p->norm[0] > 0.999) && (((int)p->centre[0])%2))
+        if((p->norm[0] > 0.999) && (((int)p->centre[0]) % 2))
         {
             float pos[3] = {1.0, 0.0, 0.0};
             Portal_Move(p, pos);
         }
 
         // Y_MIN
-        if((p->norm[1] > 0.999) && (((int)p->centre[1])%2))
+        if((p->norm[1] > 0.999) && (((int)p->centre[1]) % 2))
         {
             float pos[3] = {0.0, 1.0, 0.0};
             Portal_Move(p, pos);
         }
 
         // Z_MAX
-        if((p->norm[2] <-0.999) && (((int)p->centre[2])%2))
+        if((p->norm[2] <-0.999) && (((int)p->centre[2]) % 2))
         {
             float pos[3] = {0.0, 0.0, -1.0};
             Portal_Move(p, pos);
@@ -2184,12 +2284,12 @@ void World_GenRoom(struct room_s *room, class VT_Level *tr)
     /*
      * alternate room pointer calculation if one exists.
      */
-    room->alternate_room = NULL;
-    room->base_room = NULL;
-    // condition was commented because heavy glitches in TR3+
-    if((tr_room->alternate_room >= 0) && ((uint32_t)tr_room->alternate_room < tr->rooms_count) /*&& (room->id < tr_room->alternate_room)*/)
+    room->alternate_room_next = NULL;
+    room->alternate_room_prev = NULL;
+    room->real_room = room;
+    if((tr_room->alternate_room >= 0) && ((uint32_t)tr_room->alternate_room < tr->rooms_count))
     {
-        room->alternate_room = global_world.rooms + tr_room->alternate_room;
+        room->alternate_room_next = global_world.rooms + tr_room->alternate_room;
     }
 }
 
@@ -2268,14 +2368,15 @@ void World_GenEntities(class VT_Level *tr)
             entity->current_sector = NULL;
         }
 
-        entity->trigger_layout  = (tr_item->flags & 0x3E00) >> 9;               ///@FIXME: Ignore INVISIBLE and CLEAR BODY flags for a moment.
+        entity->trigger_layout  = (tr_item->flags & 0x3E00) >> 9;               ///@FIXME: Ignore CLEAR BODY flags for a moment.
         entity->OCB             = tr_item->ocb;
         entity->timer           = 0.0;
+        entity->state_flags &= (tr_item->flags & 0x0100) ? (0x0000) : (0xFFFF);
 
-        entity->self->collision_type = COLLISION_TYPE_KINEMATIC;
+        entity->self->collision_group = COLLISION_GROUP_KINEMATIC;
+        entity->self->collision_mask  = COLLISION_MASK_ALL;
         entity->self->collision_shape = COLLISION_SHAPE_TRIMESH;
-        entity->move_type          = 0x0000;
-        entity->move_type          = MOVE_STATIC_POS;
+        entity->move_type             = MOVE_STATIC_POS;
 
         entity->bf->animations.model = World_GetModelByID(tr_item->object_id);
 
@@ -2350,7 +2451,7 @@ void World_GenEntities(class VT_Level *tr)
 
             entity->move_type = MOVE_ON_FLOOR;
             global_world.Character = entity;
-            entity->self->collision_type = COLLISION_TYPE_ACTOR;
+            entity->self->collision_group = COLLISION_GROUP_CHARACTERS;
             entity->self->collision_shape = COLLISION_SHAPE_TRIMESH_CONVEX;
             entity->bf->animations.model->hide = 0;
             entity->type_flags |= ENTITY_TYPE_TRIGGER_ACTIVATOR;
@@ -2414,7 +2515,10 @@ void World_GenEntities(class VT_Level *tr)
             }
             Entity_SetAnimation(global_world.Character, ANIM_TYPE_BASE, TR_ANIMATION_LARA_STAY_IDLE, 0);
             Physics_GenRigidBody(entity->physics, entity->bf);
+            Entity_UpdateRigidBody(entity, 1);
             Character_Create(entity);
+            Room_AddObject(entity->self->room, entity->self);
+
             entity->character->Height = 768.0;
             entity->character->state_func = State_Control_Lara;
             entity->character->height_info.leg_l_index = LEFT_LEG;
@@ -2430,8 +2534,9 @@ void World_GenEntities(class VT_Level *tr)
         World_AddEntity(entity);
         World_SetEntityModelProperties(entity);
         Physics_GenRigidBody(entity->physics, entity->bf);
+        Entity_UpdateRigidBody(entity, 1);
 
-        if(!(entity->state_flags & ENTITY_STATE_ENABLED) || !(entity->self->collision_type & 0x0001))
+        if(!(entity->state_flags & ENTITY_STATE_ENABLED) || (entity->self->collision_group == COLLISION_NONE))
         {
             Entity_DisableCollision(entity);
         }
@@ -2445,7 +2550,18 @@ void World_GenBaseItems()
 
     if(global_world.items_tree && global_world.items_tree->root)
     {
-        World_MakeEntityItems(global_world.items_tree->root);
+        for(uint32_t i = 0; i < global_world.rooms_count; i++)
+        {
+            engine_container_p cont = global_world.rooms[i].content->containers;
+            for(; cont; cont = cont->next)
+            {
+                if(cont->object_type == OBJECT_ENTITY)
+                {
+                    int done = 0;
+                    World_MakeEntityPickable(global_world.items_tree->root, (entity_p)cont->object, &done);
+                }
+            }
+        }
     }
 }
 
@@ -2459,37 +2575,139 @@ void World_GenSpritesBuffer()
 }
 
 
-void World_GenRoomProperties(class VT_Level *tr)
+static room_p WorldRoom_FindRealRoomInSequence(room_p room)
 {
-    const char *script_dump_name = "scripts_dump.lua";      ///@DEBUG
-    room_p r = global_world.rooms;
-    SDL_RWops *f = SDL_RWFromFile(script_dump_name, "w");   ///@DEBUG
-    if(f)
+    room_p room_with_min_id = room;
+
+    for(uint16_t i = 0; i < room->portals_count; ++i)
     {
-        SDL_RWclose(f);
+        room_p outer_room = room->portals[i].dest_room;
+        for(uint16_t j = 0; j < outer_room->portals_count; ++j)
+        {
+            room_p real_room = outer_room->portals[j].dest_room;
+            if(room == real_room)
+            {
+                return real_room;
+            }
+
+            for(room_p room_it = room->alternate_room_prev; room_it; room_it = room_it->alternate_room_prev)
+            {
+                if(room_it == real_room)
+                {
+                    return real_room;
+                }
+                if(room_it == room)
+                {
+                    break;
+                }
+            }
+
+            for(room_p room_it = room->alternate_room_next; room_it; room_it = room_it->alternate_room_next)
+            {
+                if(room_it == real_room)
+                {
+                    return real_room;
+                }
+                if(room_it == room)
+                {
+                    break;
+                }
+            }
+        }
     }
 
-    for(uint32_t i = 0; i < global_world.rooms_count; i++, r++)
+    if(!room->alternate_room_prev)
     {
-        if(r->alternate_room != NULL)
-        {
-            r->alternate_room->base_room = r;   // Refill base room pointer.
-        }
+        return room;
+    }
 
+    for(room_p room_it = room->alternate_room_prev; room_it; room_it = room_it->alternate_room_prev)
+    {
+        if(!room_it->alternate_room_prev)
+        {
+            return room_it;
+        }
+        if(room_with_min_id->id > room_it->id)
+        {
+            room_with_min_id = room_it;
+        }
+        if(room_it == room)
+        {
+            break;
+        }
+    }
+
+    for(room_p room_it = room->alternate_room_next; room_it; room_it = room_it->alternate_room_next)
+    {
+        if(room_with_min_id->id > room_it->id)
+        {
+            room_with_min_id = room_it;
+        }
+        if(room_it == room)
+        {
+            break;
+        }
+    }
+
+    return room_with_min_id;
+}
+
+
+void World_GenRoomProperties(class VT_Level *tr)
+{
+    for(uint32_t i = 0; i < global_world.rooms_count; i++)
+    {
+        room_p r = global_world.rooms + i;
+        if(r->alternate_room_next)
+        {
+            r->real_room = NULL;
+            r->alternate_room_next->real_room = NULL;                           // HACK for next real room calculation
+            r->alternate_room_next->alternate_room_prev = r;                    // fill base room pointers
+        }
+    }
+
+    for(uint32_t i = 0; i < global_world.rooms_count; i++)
+    {
+        room_p r = global_world.rooms + i;
+        if(!r->real_room)
+        {
+            room_p real_room = WorldRoom_FindRealRoomInSequence(r);             // call it once per alt rooms sequence
+            r->real_room = real_room;
+            for(room_p room_it = r->alternate_room_next; room_it; room_it = room_it->alternate_room_next)
+            {
+                room_it->real_room = real_room;
+                if(room_it == r)
+                {
+                    break;
+                }
+            }
+            for(room_p room_it = r->alternate_room_prev; room_it; room_it = room_it->alternate_room_prev)
+            {
+                room_it->real_room = real_room;
+                if(room_it == r)
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    for(uint32_t i = 0; i < global_world.rooms_count; i++)
+    {
+        room_p r = global_world.rooms + i;
         // Fill heightmap and translate floordata.
         for(uint32_t j = 0; j < r->sectors_count; j++)
         {
             Res_Sector_TranslateFloorData(global_world.rooms, global_world.rooms_count, r->sectors + j, tr);
-            Trigger_BuildScripts(r->sectors[j].trigger, r->sectors[j].trig_index, script_dump_name);
         }
-
-        // Generate links to the near rooms.
-        World_BuildNearRoomsList(r);
-        // Generate links to the overlapped rooms.
-        World_BuildOverlappedRoomsList(r);
 
         // Basic sector calculations.
         Res_RoomSectorsCalculate(global_world.rooms, global_world.rooms_count, i, tr);
+
+        // Generate links to the overlapped rooms.
+        World_BuildOverlappedRoomsList(r);
+        // Generate links to the near rooms.
+        World_BuildNearRoomsList(r);
     }
 }
 
@@ -2520,9 +2738,9 @@ void World_GenRoomCollision()
         // two triangles are added to collisional trimesh, in case of triangle inbetween,
         // we add only one, and in case of ghost inbetween, we ignore it.
 
-        int num_heightmaps = (r->sectors_x * r->sectors_y);
-        int num_tweens = (num_heightmaps * 4);
-        sector_tween_s *room_tween   = new sector_tween_s[num_tweens];
+        int num_tweens = r->sectors_count * 4;
+        size_t buff_size = num_tweens * sizeof(sector_tween_t);
+        sector_tween_p room_tween = (sector_tween_p)Sys_GetTempMem(buff_size);
 
         // Clear tween array.
 
@@ -2534,12 +2752,14 @@ void World_GenRoomCollision()
 
         // Most difficult task with converting floordata collision to trimesh collision is
         // building inbetween polygons which will block out gaps between sector heights.
-        Res_Sector_GenTweens(r, room_tween);
+        num_tweens = Res_Sector_GenStaticTweens(r, room_tween);
 
         // Final step is sending actual sectors to Bullet collision model. We do it here.
-        Physics_GenRoomRigidBody(r, room_tween, num_tweens);
+        r->content->physics_body = Physics_GenRoomRigidBody(r, r->sectors, r->sectors_count, room_tween, num_tweens);
+        r->self->collision_group = COLLISION_GROUP_STATIC_ROOM;                 // meshtree
+        r->self->collision_shape = COLLISION_SHAPE_TRIMESH;
 
-        delete[] room_tween;
+        Sys_ReturnTempMem(buff_size);
     }
 }
 
@@ -2555,61 +2775,37 @@ void World_FixRooms()
 
     for(uint32_t i = 0; i < global_world.rooms_count; i++, r++)
     {
-        if(r->base_room != NULL)
+        if(r->real_room != r)
         {
             Room_Disable(r);
         }
-
-        // Isolated rooms may be used for rolling ball trick (for ex., LEVEL4.PHD).
-        // Hence, this part is commented.
-
-        /*
-        if((r->portal_count == 0) && (global_world.rooms_count > 1))
-        {
-            Room_Disable(r);
-        }
-        */
     }
 }
 
 
-void World_MakeEntityItems(struct RedBlackNode_s *n)
+void World_MakeEntityPickable(struct RedBlackNode_s *n, entity_p ent, int *done)
 {
     base_item_p item = (base_item_p)n->data;
 
-    if(item == NULL)
+    if(!*done && ent && ent->bf->animations.model)
     {
-        return;
-    }
-
-    for(uint32_t i = 0; i < global_world.rooms_count; i++)
-    {
-        engine_container_p cont = global_world.rooms[i].content->containers;
-        for(; cont; cont = cont->next)
+        if(item && (ent->bf->animations.model->id == item->world_model_id))
         {
-            if(cont->object_type == OBJECT_ENTITY)
-            {
-                entity_p ent = (entity_p)cont->object;
-                if(ent->bf->animations.model->id == item->world_model_id)
-                {
-                    char buf[64] = {0};
-                    snprintf(buf, 64, "if(entity_funcs[%d]==nil) then entity_funcs[%d]={} end", ent->id, ent->id);
-                    luaL_dostring(engine_lua, buf);
-                    snprintf(buf, 32, "pickup_init(%d, %d);", ent->id, item->id);
-                    luaL_dostring(engine_lua, buf);
-                    Entity_DisableCollision(ent);
-                }
-            }
+            char buf[128] = {0};
+            snprintf(buf, 128, "if(entity_funcs[%d] == nil) then entity_funcs[%d] = {}; pickup_init(%d, %d); end", ent->id, ent->id, ent->id, item->id);
+            luaL_dostring(engine_lua, buf);
+            Entity_DisableCollision(ent);
+            *done = 1;
+            return;
         }
-    }
 
-    if(n->right)
-    {
-        World_MakeEntityItems(n->right);
-    }
-
-    if(n->left)
-    {
-        World_MakeEntityItems(n->left);
+        if(n->right)
+        {
+            World_MakeEntityPickable(n->right, ent, done);
+        }
+        if(n->left)
+        {
+            World_MakeEntityPickable(n->left, ent, done);
+        }
     }
 }

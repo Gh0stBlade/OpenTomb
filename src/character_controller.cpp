@@ -6,6 +6,7 @@
 #include "core/polygon.h"
 #include "core/obb.h"
 #include "render/render.h"
+#include "script/script.h"
 
 #include "vt/tr_versions.h"
 #include "audio.h"
@@ -13,7 +14,6 @@
 #include "world.h"
 #include "character_controller.h"
 #include "anim_state_control.h"
-#include "script.h"
 #include "engine.h"
 #include "physics.h"
 #include "entity.h"
@@ -39,6 +39,7 @@ void Character_Create(struct entity_s *ent)
         ent->character = ret;
         ret->height_info.self = ent->self;
         ent->dir_flag = ENT_STAY;
+        ent->no_anim_pos_autocorrection = 0x00;
 
         ret->target_id = ENTITY_ID_NONE;
         ret->hair_count = 0;
@@ -80,6 +81,7 @@ void Character_Create(struct entity_s *ent)
             ret->parameters.param[i] = 0.0;
             ret->parameters.maximum[i] = 0.0;
         }
+        ret->parameters.maximum[PARAM_HIT_DAMAGE] = 9999.0;
 
         ret->sphere = CHARACTER_BASE_RADIUS;
         ret->climb_sensor = ent->character->climb_r;
@@ -108,7 +110,12 @@ void Character_Create(struct entity_s *ent)
 
         ret->traversed_object = NULL;
 
+        ent->self->collision_group = COLLISION_GROUP_CHARACTERS;
+        ent->self->collision_mask = COLLISION_GROUP_STATIC_ROOM | COLLISION_GROUP_STATIC_OBLECT | COLLISION_GROUP_KINEMATIC |
+                                    COLLISION_GROUP_CHARACTERS | COLLISION_GROUP_DYNAMICS | COLLISION_GROUP_DYNAMICS_NI | COLLISION_GROUP_TRIGGERS;
+        Physics_SetCollisionGroupAndMask(ent->physics, ent->self->collision_group, ent->self->collision_mask);
         Physics_CreateGhosts(ent->physics, ent->bf, NULL);
+        Entity_GhostUpdate(ent);
     }
 }
 
@@ -143,6 +150,34 @@ void Character_Clean(struct entity_s *ent)
     free(ent->character);
     ent->character = NULL;
 }
+
+
+void Character_Update(struct entity_s *ent)
+{
+    const uint16_t mask = ENTITY_STATE_ENABLED | ENTITY_STATE_ACTIVE;
+    if(mask == (ent->state_flags & mask))
+    {
+        if(ent->character->cmd.action && (ent->type_flags & ENTITY_TYPE_TRIGGER_ACTIVATOR))
+        {
+            Entity_CheckActivators(ent);
+        }
+        if(Character_GetParam(ent, PARAM_HEALTH) <= 0.0)
+        {
+            ent->character->resp.kill = 1;                                      // Kill, if no HP.
+        }
+        Character_ApplyCommands(ent);
+
+        Entity_ProcessSector(ent);
+        Character_UpdateParams(ent);
+        Entity_CheckCollisionCallbacks(ent);
+
+        for(int h = 0; h < ent->character->hair_count; h++)
+        {
+            Hair_Update(ent->character->hairs[h], ent->physics);
+        }
+    }
+}
+
 
 /**
  * Calculates character speed, based on direction flag and anim linear speed
@@ -205,7 +240,7 @@ void Character_UpdateCurrentHeight(struct entity_s *ent)
         vec3_copy(to, from);
         to[2] -= ent->character->Height;
         vec3_copy(hi->leg_l_floor.point, from);
-        Physics_RayTest(&hi->leg_l_floor, from ,to, ent->self);
+        Physics_RayTest(&hi->leg_l_floor, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST);
     }
 
     if((hi->leg_r_index >= 0) && (hi->leg_r_index < ent->bf->bone_tag_count))
@@ -215,7 +250,7 @@ void Character_UpdateCurrentHeight(struct entity_s *ent)
         vec3_copy(to, from);
         to[2] -= ent->character->Height;
         vec3_copy(hi->leg_r_floor.point, from);
-        Physics_RayTest(&hi->leg_r_floor, from ,to, ent->self);
+        Physics_RayTest(&hi->leg_r_floor, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST);
     }
 
     if((hi->hand_l_index >= 0) && (hi->hand_l_index < ent->bf->bone_tag_count))
@@ -224,7 +259,7 @@ void Character_UpdateCurrentHeight(struct entity_s *ent)
         from[2] = base_z;
         vec3_copy(to, from);
         to[2] -= ent->character->Height;
-        Physics_RayTest(&hi->hand_l_floor, from ,to, ent->self);
+        Physics_RayTest(&hi->hand_l_floor, from ,to, ent->self, COLLISION_FILTER_HEIGHT_TEST);
         vec3_copy(hi->hand_l_floor.point, from);
     }
 
@@ -234,7 +269,7 @@ void Character_UpdateCurrentHeight(struct entity_s *ent)
         from[2] = base_z;
         vec3_copy(to, from);
         to[2] -= ent->character->Height;
-        Physics_RayTest(&hi->hand_r_floor, from ,to, ent->self);
+        Physics_RayTest(&hi->hand_r_floor, from ,to, ent->self, COLLISION_FILTER_HEIGHT_TEST);
         vec3_copy(hi->hand_r_floor.point, from);
     }
 }
@@ -326,15 +361,14 @@ void Character_GetHeightInfo(float pos[3], struct height_info_s *fc, float v_off
     fc->transition_level = 32512.0;
 
     r = World_FindRoomByPosCogerrence(pos, r);
-    r = Room_CheckFlip(r);
     if(r)
     {
         rs = Room_GetSectorXYZ(r, pos);                                         // if r != NULL then rs can not been NULL!!!
         if(r->flags & TR_ROOM_FLAG_WATER)                                       // in water - go up
         {
-            while(rs->sector_above)
+            while(rs->room_above)
             {
-                rs = Sector_CheckFlip(rs->sector_above);
+                rs = Room_GetSectorRaw(rs->room_above->real_room, rs->pos);
                 if((rs->owner_room->flags & TR_ROOM_FLAG_WATER) == 0x00)        // find air
                 {
                     fc->transition_level = (float)rs->floor;
@@ -345,9 +379,9 @@ void Character_GetHeightInfo(float pos[3], struct height_info_s *fc, float v_off
         }
         else if(r->flags & TR_ROOM_FLAG_QUICKSAND)
         {
-            while(rs->sector_above)
+            while(rs->room_above)
             {
-                rs = Sector_CheckFlip(rs->sector_above);
+                rs = Room_GetSectorRaw(rs->room_above->real_room, rs->pos);
                 if((rs->owner_room->flags & TR_ROOM_FLAG_QUICKSAND) == 0x00)    // find air
                 {
                     fc->transition_level = (float)rs->floor;
@@ -365,9 +399,9 @@ void Character_GetHeightInfo(float pos[3], struct height_info_s *fc, float v_off
         }
         else                                                                    // in air - go down
         {
-            while(rs->sector_below)
+            while(rs->room_below)
             {
-                rs = Sector_CheckFlip(rs->sector_below);
+                rs = Room_GetSectorRaw(rs->room_below->real_room, rs->pos);
                 if((rs->owner_room->flags & TR_ROOM_FLAG_WATER) != 0x00)        // find water
                 {
                     fc->transition_level = (float)rs->ceiling;
@@ -399,10 +433,10 @@ void Character_GetHeightInfo(float pos[3], struct height_info_s *fc, float v_off
     to[1] = from[1];
     to[2] = from[2] - 8192.0f;
 
-    Physics_RayTest(&fc->floor_hit, from ,to, fc->self);
+    Physics_RayTest(&fc->floor_hit, from ,to, fc->self, COLLISION_FILTER_HEIGHT_TEST);
 
     to[2] = from[2] + 4096.0f;
-    Physics_RayTest(&fc->ceiling_hit, from ,to, fc->self);
+    Physics_RayTest(&fc->ceiling_hit, from ,to, fc->self, COLLISION_FILTER_HEIGHT_TEST);
 }
 
 /**
@@ -496,7 +530,7 @@ int Character_CheckNextStep(struct entity_s *ent, float offset[3], struct height
     to[1] = pos[1];
     to[2] = from[2];
 
-    if(Physics_RayTest(NULL, from, to, fc->self))
+    if(Physics_RayTest(NULL, from, to, fc->self, COLLISION_FILTER_HEIGHT_TEST))
     {
         ret = CHARACTER_STEP_UP_IMPOSSIBLE;
     }
@@ -553,7 +587,7 @@ void Character_FixPosByFloorInfoUnderLegs(struct entity_s *ent)
                 //renderer.debugDrawer->DrawLine(from, to, red, red);
                 while((from[0] + 4.0f * R * ent->transform[0 + 0] - pos[0]) * ent->transform[0 + 0] + (from[1] + 4.0f *R * ent->transform[0 + 1] - pos[1]) * ent->transform[0 + 1] > 0.0f)
                 {
-                    if(Physics_SphereTest(&cb, from, to, R, ent->self))
+                    if(Physics_SphereTest(&cb, from, to, R, ent->self, COLLISION_FILTER_HEIGHT_TEST))
                     {
                         fix[0] += (cb.point[0] - hi->leg_r_floor.point[0]);
                         fix[1] += (cb.point[1] - hi->leg_r_floor.point[1]);
@@ -576,9 +610,9 @@ void Character_FixPosByFloorInfoUnderLegs(struct entity_s *ent)
                 to[1] = from[1];
                 to[2] = ent->transform[12 + 2] - ent->character->max_step_up_height;
                 //renderer.debugDrawer->DrawLine(from, to, red, red);
-                while((from[0] - 4.0f * R * ent->transform[0 + 0] - pos[0]) * ent->transform[0 + 0] + (from[1] - 4.0f *R * ent->transform[0 + 1] - pos[1]) * ent->transform[0 + 1] < 0.0f)
+                while((from[0] - 4.0f * R * ent->transform[0 + 0] - pos[0]) * ent->transform[0 + 0] + (from[1] - 4.0f * R * ent->transform[0 + 1] - pos[1]) * ent->transform[0 + 1] < 0.0f)
                 {
-                    if(Physics_SphereTest(&cb, from, to, R, ent->self))
+                    if(Physics_SphereTest(&cb, from, to, R, ent->self, COLLISION_FILTER_HEIGHT_TEST))
                     {
                         fix[0] += (cb.point[0] - hi->leg_l_floor.point[0]);
                         fix[1] += (cb.point[1] - hi->leg_l_floor.point[1]);
@@ -626,6 +660,12 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
     collision_result_t cb;
     //const float color[3] = {1.0, 0.0, 0.0};
 
+    if(ent->current_sector && ent->current_sector->room_above &&
+       ent->current_sector->room_above->bb_min[2] < test_from[2] + 256.0f)
+    {
+        Entity_MoveToRoom(ent, ent->current_sector->room_above->real_room);
+    }
+
     climb->height_info = CHARACTER_STEP_HORIZONTAL;
     climb->can_hang = 0x00;
     climb->edge_hit = 0x00;
@@ -638,7 +678,7 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
     to[1] = test_to[1];
     to[2] = test_from[2];
     //renderer.debugDrawer->DrawLine(from, to, color, color);
-    if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self))
+    if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST))
     {
         // NEAR WALL CASE
         if(cb.fraction > 0.0f)
@@ -651,7 +691,7 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
             from[2] = cb.point[2] + ent->character->max_step_up_height;
             to[2] = test_to[2];
             //renderer.debugDrawer->DrawLine(from, to, color, color);
-            if(Physics_RayTestFiltered(&cb, from, to, ent->self))
+            if(Physics_RayTestFiltered(&cb, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST))
             {
                 vec3_copy(n1, cb.normale);
                 n1[3] = -vec3_dot(n1, cb.point);
@@ -664,7 +704,7 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
                 to[2] = from[2];
                 while(to[2] > test_to[2])
                 {
-                    if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self) && (vec3_dot(cb.normale, n1) < 0.98f))
+                    if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST) && (vec3_dot(cb.normale, n1) < 0.98f))
                     {
                         vec3_copy(n0, cb.normale);
                         n0[3] = -vec3_dot(n0, cb.point);
@@ -684,7 +724,7 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
         from[2] = test_from[2];
         to[2] = test_to[2];
         //renderer.debugDrawer->DrawLine(from, to, color, color);
-        if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self) && (cb.fraction > 0.0f))
+        if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST) && (cb.fraction > 0.0f))
         {
             vec3_copy(n0, cb.normale);
             n0[3] = -vec3_dot(n0, cb.point);
@@ -700,7 +740,7 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
             for(; to[2] >= test_to[2]; from[2] += z_step, to[2] += z_step)      // we can't climb under floor!
             {
                 //renderer.debugDrawer->DrawLine(from, to, color, color);
-                if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self) && (cb.fraction > 0.0f))
+                if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST) && (cb.fraction > 0.0f))
                 {
                     if(up_founded && (vec3_dist_sq(cb.normale, n0) > 0.05f))
                     {
@@ -796,14 +836,14 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
         vec3_copy(from, climb->edge_point);
         vec3_copy(to, from);
         to[2] += climb->next_z_space;
-        if(Physics_RayTestFiltered(&cb, from, to, ent->self))
+        if(Physics_RayTestFiltered(&cb, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST))
         {
             climb->next_z_space = cb.point[2] - climb->edge_point[2];
             if(climb->next_z_space < 0.01f)
             {
                 climb->next_z_space = 2.0 * ent->character->Height;
                 from[2] += fabs(climb->next_z_space);
-                if(Physics_RayTestFiltered(&cb, from, to, ent->self))
+                if(Physics_RayTestFiltered(&cb, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST))
                 {
                     climb->next_z_space = cb.point[2] - climb->edge_point[2];
                 }
@@ -814,24 +854,31 @@ void Character_CheckClimbability(struct entity_s *ent, struct climb_info_s *clim
         from[1] = to[1] = test_from[1];
         from[2] = test_from[2];
         to[2] = climb->edge_point[2] - ent->character->Height;
-        climb->can_hang = (Physics_RayTestFiltered(NULL, from, to, ent->self) ? (0x00) : (0x01));
+        climb->can_hang = (Physics_RayTestFiltered(NULL, from, to, ent->self, COLLISION_FILTER_HEIGHT_TEST) ? (0x00) : (0x01));
     }
 }
 
 
 void Character_CheckWallsClimbability(struct entity_s *ent, struct climb_info_s *climb)
 {
-    float from[3], to[3];
-    float wn2[2], t, *pos = ent->transform + 12;
+    float from[3], to[3], t;
     collision_result_t cb;
 
     climb->can_hang = 0x00;
     climb->wall_hit = 0x00;
     climb->edge_hit = 0x00;
     climb->edge_obj = NULL;
-    vec3_copy(climb->point, ent->character->climb.point);
 
     if(ent->character->height_info.walls_climb == 0x00)
+    {
+        return;
+    }
+
+    // now we have wall normale in XOY plane. Let us check all flags
+    if(!((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_NORTH) && (ent->transform[4 + 1] >  0.7)) &&
+       !((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_EAST)  && (ent->transform[4 + 0] >  0.7)) &&
+       !((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_SOUTH) && (ent->transform[4 + 1] < -0.7)) &&
+       !((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_WEST)  && (ent->transform[4 + 0] < -0.7)))
     {
         return;
     }
@@ -840,65 +887,43 @@ void Character_CheckWallsClimbability(struct entity_s *ent, struct climb_info_s 
     climb->up[1] = 0.0;
     climb->up[2] = 1.0;
 
-    from[0] = pos[0] + ent->transform[8 + 0] * ent->bf->bb_max[2] - ent->transform[4 + 0] * ent->character->climb_r;
-    from[1] = pos[1] + ent->transform[8 + 1] * ent->bf->bb_max[2] - ent->transform[4 + 1] * ent->character->climb_r;
-    from[2] = pos[2] + ent->transform[8 + 2] * ent->bf->bb_max[2] - ent->transform[4 + 2] * ent->character->climb_r;
+    Character_GetMiddleHandsPos(ent, from);
     vec3_copy(to, from);
-    t = ent->character->forvard_size + ent->bf->bb_max[1];
+    t = ent->character->climb_r * 2.0f;
+    from[0] -= ent->transform[4 + 0] * t;
+    from[1] -= ent->transform[4 + 1] * t;
+
+    t += ent->character->forvard_size + 64.0f;      //@WORKAROUND! stupid useless anim move command usages!
     to[0] += ent->transform[4 + 0] * t;
     to[1] += ent->transform[4 + 1] * t;
-    to[2] += ent->transform[4 + 2] * t;
 
-    if(!Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self))
+    to[2] -= ent->character->min_step_up_height;
+    Character_CheckClimbability(ent, climb, from, to);
+    to[2] += ent->character->min_step_up_height;
+    if(Physics_SphereTest(&cb, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST))
     {
-        return;
-    }
+        float wn2[2] = {cb.normale[0], cb.normale[1]};
 
-    vec3_copy(climb->point, cb.point);
-    vec3_copy(climb->n, cb.normale);
-    wn2[0] = climb->n[0];
-    wn2[1] = climb->n[1];
-    t = sqrt(wn2[0] * wn2[0] + wn2[1] * wn2[1]);
-    wn2[0] /= t;
-    wn2[0] /= t;
+        climb->wall_hit = 0x01;
+        vec3_copy(climb->point, cb.point);
+        vec3_copy(climb->n, cb.normale);
+        t = sqrt(wn2[0] * wn2[0] + wn2[1] * wn2[1]);
+        wn2[0] /= t;
+        wn2[1] /= t;
 
-    climb->t[0] =-wn2[1];
-    climb->t[1] = wn2[0];
-    climb->t[2] = 0.0;
-    // now we have wall normale in XOY plane. Let us check all flags
+        climb->t[0] =-wn2[1];
+        climb->t[1] = wn2[0];
+        climb->t[2] = 0.0f;
 
-    if((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_NORTH) && (wn2[1] < -0.7))
-    {
-        climb->wall_hit = 0x01;                                                    // nW = (0, -1, 0);
-    }
-    if((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_EAST) && (wn2[0] < -0.7))
-    {
-        climb->wall_hit = 0x01;                                                    // nW = (-1, 0, 0);
-    }
-    if((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_SOUTH) && (wn2[1] > 0.7))
-    {
-        climb->wall_hit = 0x01;                                                    // nW = (0, 1, 0);
-    }
-    if((ent->character->height_info.walls_climb_dir & SECTOR_FLAG_CLIMB_WEST) && (wn2[0] > 0.7))
-    {
-        climb->wall_hit = 0x01;                                                    // nW = (1, 0, 0);
-    }
-
-    if(climb->wall_hit)
-    {
-        t = 0.67 * ent->character->Height;
-        from[0] -= ent->transform[8 + 0] * t;
-        from[1] -= ent->transform[8 + 1] * t;
-        from[2] -= ent->transform[8 + 2] * t;
-        vec3_copy(to, from);
-        t = ent->character->forvard_size + ent->bf->bb_max[1];
-        to[0] += ent->transform[4 + 0] * t;
-        to[1] += ent->transform[4 + 1] * t;
-        to[2] += ent->transform[4 + 2] * t;
-
-        if(Physics_SphereTest(NULL, from, to, ent->character->climb_r, ent->self))
+        if(climb->wall_hit)
         {
-            climb->wall_hit = 0x02;
+            from[2] -= 0.67 * ent->character->Height;
+            to[2] = from[2];
+
+            if(Physics_SphereTest(NULL, from, to, ent->character->climb_r, ent->self, COLLISION_FILTER_HEIGHT_TEST))
+            {
+                climb->wall_hit = 0x02;
+            }
         }
     }
 }
@@ -1026,6 +1051,8 @@ void Character_LookAt(struct entity_s *ent, float target[3])
     const float head_target_limit[4] = {0.0f, 1.0f, 0.0f, 0.273f};
     ss_animation_p anim_head_track = SSBoneFrame_GetOverrideAnim(ent->bf, ANIM_TYPE_HEAD_TRACK);
     ss_animation_p  base_anim = &ent->bf->animations;
+    const uint16_t bone_head = 14;
+    const uint16_t bone_body = 7;
 
     base_anim->anim_ext_flags &= ~ANIM_EXT_TARGET_TO;
 
@@ -1035,7 +1062,7 @@ void Character_LookAt(struct entity_s *ent, float target[3])
     }
 
     anim_head_track->targeting_flags = 0x0000;
-    SSBoneFrame_SetTrget(anim_head_track, 14, target, bone_dir);
+    SSBoneFrame_SetTrget(anim_head_track, bone_head, target, bone_dir);
     SSBoneFrame_SetTargetingLimit(anim_head_track, head_target_limit);
 
     if(SSBoneFrame_CheckTargetBoneLimit(ent->bf, anim_head_track))
@@ -1043,11 +1070,11 @@ void Character_LookAt(struct entity_s *ent, float target[3])
         anim_head_track->anim_ext_flags |= ANIM_EXT_TARGET_TO;
         if((ent->move_type == MOVE_ON_FLOOR) || (ent->move_type == MOVE_FREE_FALLING))
         {
-            const float axis_mod[3] = {0.5f, 0.5f, 1.0f};
+            const float axis_mod[3] = {0.33f, 0.33f, 1.0f};
             const float target_limit[4] = {0.0f, 1.0f, 0.0f, 0.883f};
 
             base_anim->targeting_flags = 0x0000;
-            SSBoneFrame_SetTrget(base_anim, 7, target, bone_dir);
+            SSBoneFrame_SetTrget(base_anim, bone_body, target, bone_dir);
             SSBoneFrame_SetTargetingLimit(base_anim, target_limit);
             SSBoneFrame_SetTargetingAxisMod(base_anim, axis_mod);
             base_anim->anim_ext_flags |= ANIM_EXT_TARGET_TO;
@@ -1100,7 +1127,7 @@ int Character_MoveOnFloor(struct entity_s *ent)
         move[0] = pos[0];
         move[1] = pos[1];
         move[2] = pos[2] + 24.0f;
-        Physics_SphereTest(&ent->character->height_info.floor_hit, move, tv, 16.0f, ent->self);
+        Physics_SphereTest(&ent->character->height_info.floor_hit, move, tv, 16.0f, ent->self, COLLISION_FILTER_HEIGHT_TEST);
         ent->character->height_info.floor_hit.normale[0] = 0.0f;
         ent->character->height_info.floor_hit.normale[1] = 0.0f;
         ent->character->height_info.floor_hit.normale[2] = 1.0f;
@@ -1221,7 +1248,7 @@ int Character_MoveOnFloor(struct entity_s *ent)
 
     Entity_GhostUpdate(ent);
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);
     if(ent->character->height_info.floor_hit.hit)
     {
         if(ent->character->height_info.floor_hit.point[2] + ent->character->fall_down_height > pos[2])
@@ -1230,12 +1257,12 @@ int Character_MoveOnFloor(struct entity_s *ent)
             if(pos[2] > ent->character->height_info.floor_hit.point[2] + dz_to_land)
             {
                 pos[2] -= dz_to_land;
-                Entity_FixPenetrations(ent, NULL);
+                Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             }
             else if(pos[2] > ent->character->height_info.floor_hit.point[2])
             {
                 pos[2] = ent->character->height_info.floor_hit.point[2];
-                Entity_FixPenetrations(ent, NULL);
+                Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             }
         }
         else
@@ -1248,7 +1275,7 @@ int Character_MoveOnFloor(struct entity_s *ent)
         if((pos[2] < ent->character->height_info.floor_hit.point[2]) && (ent->no_fix_all == 0x00))
         {
             pos[2] = ent->character->height_info.floor_hit.point[2];
-            Entity_FixPenetrations(ent, NULL);
+            Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             ent->character->resp.vertical_collide |= 0x01;
         }
     }
@@ -1287,30 +1314,8 @@ int Character_FreeFalling(struct entity_s *ent)
     ent->angles[0] += rot;
     ent->angles[1] = 0.0;
 
-    Entity_UpdateTransform(ent);                                                 // apply rotations
-
-    /*float t = ent->current_speed * bf-> ent->character->speed_mult;        ///@TODO: fix speed update in Entity_Frame function and other;
-    if(ent->dir_flag & ENT_MOVE_FORWARD)
-    {
-        ent->speed.m_floats[0] = ent->transform[4 + 0] * t;
-        ent->speed.m_floats[1] = ent->transform[4 + 1] * t;
-    }
-    else if(ent->dir_flag & ENT_MOVE_BACKWARD)
-    {
-        ent->speed.m_floats[0] =-ent->transform[4 + 0] * t;
-        ent->speed.m_floats[1] =-ent->transform[4 + 1] * t;
-    }
-    else if(ent->dir_flag & ENT_MOVE_LEFT)
-    {
-        ent->speed.m_floats[0] =-ent->transform[0 + 0] * t;
-        ent->speed.m_floats[1] =-ent->transform[0 + 1] * t;
-    }
-    else if(ent->dir_flag & ENT_MOVE_RIGHT)
-    {
-        ent->speed.m_floats[0] = ent->transform[0 + 0] * t;
-        ent->speed.m_floats[1] = ent->transform[0 + 1] * t;
-    }*/
-
+    Entity_UpdateTransform(ent);                                                // apply rotations
+    ///@TODO: fix speed update in Entity_Frame function and other;
 
     Physics_GetGravity(g);
     vec3_add_mul(move, ent->speed, g, engine_frame_time * 0.5);
@@ -1358,7 +1363,7 @@ int Character_FreeFalling(struct entity_s *ent)
             pos[2] = ent->character->height_info.ceiling_hit.point[2] - ent->bf->bb_max[2];
             ent->speed[2] = 0.0;
             ent->character->resp.vertical_collide |= 0x02;
-            Entity_FixPenetrations(ent, NULL);
+            Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             Entity_UpdateRoomPos(ent);
         }
     }
@@ -1370,14 +1375,14 @@ int Character_FreeFalling(struct entity_s *ent)
             //ent->speed.m_floats[2] = 0.0;
             ent->move_type = MOVE_ON_FLOOR;
             ent->character->resp.vertical_collide |= 0x01;
-            Entity_FixPenetrations(ent, NULL);
+            Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             Entity_UpdateRoomPos(ent);
             return 2;
         }
     }
 
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);                                          // get horizontal collide
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);              // get horizontal collide
 
     if(ent->character->height_info.ceiling_hit.hit && ent->speed[2] > 0.0)
     {
@@ -1396,7 +1401,7 @@ int Character_FreeFalling(struct entity_s *ent)
             //ent->speed.m_floats[2] = 0.0;
             ent->move_type = MOVE_ON_FLOOR;
             ent->character->resp.vertical_collide |= 0x01;
-            Entity_FixPenetrations(ent, NULL);
+            Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
             Entity_UpdateRoomPos(ent);
             return 2;
         }
@@ -1453,7 +1458,7 @@ int Character_MonkeyClimbing(struct entity_s *ent)
 
     Entity_GhostUpdate(ent);
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);                                          // get horizontal collide
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);              // get horizontal collide
     ///@FIXME: rewrite conditions! or add fixer to update_entity_rigid_body func
     if(ent->character->height_info.ceiling_hit.hit && (pos[2] + ent->bf->bb_max[2] - ent->character->height_info.ceiling_hit.point[2] > - 0.33 * ent->character->min_step_up_height))
     {
@@ -1484,53 +1489,45 @@ int Character_WallsClimbing(struct entity_s *ent)
     ent->character->resp.vertical_collide = 0x00;
 
     Character_CheckWallsClimbability(ent, climb);
-    ent->character->climb = *climb;
-    if(!(climb->wall_hit))
+    Character_GetMiddleHandsPos(ent, move);
+    if(!climb->wall_hit || (climb->edge_hit && (climb->edge_point[2] < move[2])))
     {
-        ent->character->height_info.walls_climb = 0x00;
+        if(climb->edge_hit && (ent->dir_flag != ENT_MOVE_BACKWARD))
+        {
+            pos[2] += climb->edge_point[2] - move[2];
+        }
         return 2;
     }
 
-    ent->angles[0] = 180.0 * atan2f(climb->n[0], -climb->n[1]) / M_PI;
+    ent->angles[0] = atan2f(climb->n[0], -climb->n[1]) * 180.0f / M_PI;
     Entity_UpdateTransform(ent);
-    pos[0] = climb->point[0] - ent->transform[4 + 0] * ent->bf->bb_max[1];
-    pos[1] = climb->point[1] - ent->transform[4 + 1] * ent->bf->bb_max[1];
+    pos[0] = climb->point[0] + climb->n[0] * ent->bf->bb_max[1];
+    pos[1] = climb->point[1] + climb->n[1] * ent->bf->bb_max[1];
 
-    if(ent->dir_flag == ENT_MOVE_FORWARD)
-    {
-        vec3_copy(move, climb->up);
-    }
-    else if(ent->dir_flag == ENT_MOVE_BACKWARD)
-    {
-        vec3_copy_inv(move, climb->up);
-    }
-    else if(ent->dir_flag == ENT_MOVE_RIGHT)
+    if(ent->dir_flag == ENT_MOVE_RIGHT)
     {
         vec3_copy(move, climb->t);
+        t = ent->anim_linear_speed * ent->character->linear_speed_mult;
     }
     else if(ent->dir_flag == ENT_MOVE_LEFT)
     {
         vec3_copy_inv(move, climb->t);
+        t = ent->anim_linear_speed * ent->character->linear_speed_mult;
     }
     else
     {
         vec3_set_zero(move);
+        t = 0.0f;
     }
-    t = vec3_abs(move);
-    if(t > 0.01)
+
+    if(t != 0.0f)
     {
-        move[0] /= t;
-        move[1] /= t;
-        move[2] /= t;
+        vec3_mul_scalar(ent->speed, move, t);
+        vec3_mul_scalar(move, ent->speed, engine_frame_time);
+        vec3_add(pos, pos, move);
+        Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);          // get horizontal collide
     }
 
-    t = ent->anim_linear_speed * ent->character->linear_speed_mult;
-    vec3_mul_scalar(ent->speed, move, t);
-    vec3_mul_scalar(move, ent->speed, engine_frame_time);
-
-    Entity_GhostUpdate(ent);
-    vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);                                          // get horizontal collide
     Entity_UpdateRoomPos(ent);
 
     return 1;
@@ -1577,7 +1574,7 @@ int Character_Climbing(struct entity_s *ent)
         vec3_set_zero(ent->speed);
         ent->character->resp.slide = 0x00;
         Entity_GhostUpdate(ent);
-        Entity_FixPenetrations(ent, NULL);
+        Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
         return 1;
     }
 
@@ -1586,7 +1583,7 @@ int Character_Climbing(struct entity_s *ent)
 
     Entity_GhostUpdate(ent);
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);                                          // get horizontal collide
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);              // get horizontal collide
     Entity_UpdateRoomPos(ent);
     pos[2] = z;
 
@@ -1655,7 +1652,7 @@ int Character_MoveUnderWater(struct entity_s *ent)
 
     Entity_GhostUpdate(ent);
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);                                          // get horizontal collide
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);              // get horizontal collide
 
     Entity_UpdateRoomPos(ent);
     if(ent->character->height_info.water && (pos[2] + ent->bf->bb_max[2] >= ent->character->height_info.transition_level))
@@ -1729,7 +1726,7 @@ int Character_MoveOnWater(struct entity_s *ent)
     {
         vec3_set_zero(ent->speed);
         Entity_GhostUpdate(ent);
-        Entity_FixPenetrations(ent, NULL);
+        Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
         Entity_UpdateRoomPos(ent);
         if(ent->character->height_info.water)
         {
@@ -1749,7 +1746,7 @@ int Character_MoveOnWater(struct entity_s *ent)
     vec3_mul_scalar(move, ent->speed, engine_frame_time);
     Entity_GhostUpdate(ent);
     vec3_add(pos, pos, move);
-    Entity_FixPenetrations(ent, move);  // get horizontal collide
+    Entity_FixPenetrations(ent, move, COLLISION_FILTER_CHARACTER);              // get horizontal collide
 
     Entity_UpdateRoomPos(ent);
     if(ent->character->height_info.water)
@@ -1768,7 +1765,7 @@ int Character_MoveOnWater(struct entity_s *ent)
 int Character_FindTraverse(struct entity_s *ch)
 {
     room_sector_p ch_s, obj_s = NULL;
-    ch_s = Room_GetSectorRaw(ch->self->room, ch->transform + 12);
+    ch_s = ch->current_sector;
 
     if(ch_s == NULL)
     {
@@ -1781,41 +1778,57 @@ int Character_FindTraverse(struct entity_s *ch)
     if(ch->transform[4 + 0] > 0.9)
     {
         float pos[] = {(float)(ch_s->pos[0] + TR_METERING_SECTORSIZE), (float)(ch_s->pos[1]), (float)0.0};
-        obj_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        obj_s = Room_GetSectorRaw(ch->self->room->real_room, pos);
     }
     else if(ch->transform[4 + 0] < -0.9)
     {
         float pos[] = {(float)(ch_s->pos[0] - TR_METERING_SECTORSIZE), (float)(ch_s->pos[1]), (float)0.0};
-        obj_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        obj_s = Room_GetSectorRaw(ch->self->room->real_room, pos);
     }
     // OY move case
     else if(ch->transform[4 + 1] > 0.9)
     {
         float pos[] = {(float)(ch_s->pos[0]), (float)(ch_s->pos[1] + TR_METERING_SECTORSIZE), (float)0.0};
-        obj_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        obj_s = Room_GetSectorRaw(ch->self->room->real_room, pos);
     }
     else if(ch->transform[4 + 1] < -0.9)
     {
         float pos[] = {(float)(ch_s->pos[0]), (float)(ch_s->pos[1] - TR_METERING_SECTORSIZE), (float)0.0};
-        obj_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        obj_s = Room_GetSectorRaw(ch->self->room->real_room, pos);
     }
 
     if(obj_s != NULL)
     {
-        obj_s = Sector_GetPortalSectorTarget(obj_s);
+        obj_s = Sector_GetPortalSectorTargetReal(obj_s);
         for(engine_container_p cont = obj_s->owner_room->content->containers; cont; cont = cont->next)
         {
             if(cont->object_type == OBJECT_ENTITY)
             {
                 entity_p e = (entity_p)cont->object;
-                if((e->type_flags & ENTITY_TYPE_TRAVERSE) && OBB_OBB_Test(e->obb, ch->obb) && (fabs(e->transform[12 + 2] - ch->transform[12 + 2]) < 1.1f))
+                if((e->type_flags & ENTITY_TYPE_TRAVERSE) && OBB_OBB_Test(e->obb, ch->obb, 32.0f) && (fabs(e->transform[12 + 2] - ch->transform[12 + 2]) < 1.1f))
                 {
-                    int oz = (ch->angles[0] + 45.0) / 90.0;
-                    ch->angles[0] = oz * 90.0;
+                    int oz = (ch->angles[0] + 45.0f) / 90.0f;
+                    ch->angles[0] = oz * 90.0f;
                     ch->character->traversed_object = e;
                     Entity_UpdateTransform(ch);
                     return 1;
                 }
+            }
+        }
+    }
+
+    for(engine_container_p cont = ch_s->owner_room->content->containers; cont; cont = cont->next)
+    {
+        if(cont->object_type == OBJECT_ENTITY)
+        {
+            entity_p e = (entity_p)cont->object;
+            if((e->type_flags & ENTITY_TYPE_TRAVERSE) && OBB_OBB_Test(e->obb, ch->obb, 32.0f) && (fabs(e->transform[12 + 2] - ch->transform[12 + 2]) < 1.1f))
+            {
+                int oz = (ch->angles[0] + 45.0f) / 90.0f;
+                ch->angles[0] = oz * 90.0f;
+                ch->character->traversed_object = e;
+                Entity_UpdateTransform(ch);
+                return 1;
             }
         }
     }
@@ -1829,33 +1842,31 @@ int Character_FindTraverse(struct entity_s *ch)
  * @param floor: floor height
  * @return 0x01: can traverse, 0x00 can not;
  */
-int Sector_AllowTraverse(struct room_sector_s *rs, float floor, struct engine_container_s *cont)
+int Sector_AllowTraverse(struct room_sector_s *rs, float floor)
 {
     float f0 = rs->floor_corners[0][2];
     if((rs->floor_corners[0][2] != f0) || (rs->floor_corners[1][2] != f0) ||
-       (rs->floor_corners[2][2] != f0) || (rs->floor_corners[3][2] != f0))
+       (rs->floor_corners[2][2] != f0) || (rs->floor_corners[3][2] != f0) ||
+       (rs->floor_penetration_config != TR_PENETRATION_CONFIG_SOLID) ||
+       (rs->ceiling - floor < TR_METERING_SECTORSIZE))
     {
         return 0x00;
     }
 
-    if((fabs(floor - f0) < 1.1) && (rs->ceiling - rs->floor >= TR_METERING_SECTORSIZE))
+    if(fabs(f0 - floor) < 1.1f)
     {
         return 0x01;
     }
 
-    float from[3], to[3];
-    collision_result_t cb;
-
-    to[0] = from[0] = rs->pos[0];
-    to[1] = from[1] = rs->pos[1];
-    from[2] = floor + TR_METERING_SECTORSIZE * 0.5;
-    to[2]   = floor - TR_METERING_SECTORSIZE * 0.5;
-
-    if(Physics_RayTest(&cb, from, to, cont))
+    for(engine_container_p cont = rs->owner_room->real_room->content->containers; cont; cont = cont->next)
     {
-        if(fabs(cb.point[2] - floor) < 1.1)
+        if(cont->object_type == OBJECT_ENTITY)
         {
-            if((cb.obj != NULL) && (cb.obj->object_type == OBJECT_ENTITY) && (((entity_p)cb.obj->object)->type_flags & ENTITY_TYPE_TRAVERSE_FLOOR))
+            entity_p ent = (entity_p)cont->object;
+            if((ent->type_flags & ENTITY_TYPE_TRAVERSE_FLOOR) &&
+               (fabs(ent->transform[12 + 2] + TR_METERING_SECTORSIZE - floor) < 1.1f) &&
+               (fabs(ent->transform[12 + 0] - rs->pos[0]) < 1.1f) &&
+               (fabs(ent->transform[12 + 1] - rs->pos[1]) < 1.1f))
             {
                 return 0x01;
             }
@@ -1873,34 +1884,8 @@ int Sector_AllowTraverse(struct room_sector_s *rs, float floor, struct engine_co
  */
 int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
 {
-    room_sector_p ch_s  = Room_GetSectorRaw(ch->self->room, ch->transform + 12);
-    room_sector_p obj_s = Room_GetSectorRaw(obj->self->room, obj->transform + 12);
-
-    if(obj_s == ch_s)
-    {
-        if(ch->transform[4 + 0] > 0.8)
-        {
-            float pos[] = {(float)(obj_s->pos[0] - TR_METERING_SECTORSIZE), (float)(obj_s->pos[1]), (float)0.0};
-            ch_s = Room_GetSectorRaw(obj_s->owner_room, pos);
-        }
-        else if(ch->transform[4 + 0] < -0.8)
-        {
-            float pos[] = {(float)(obj_s->pos[0] + TR_METERING_SECTORSIZE), (float)(obj_s->pos[1]), (float)0.0};
-            ch_s = Room_GetSectorRaw(obj_s->owner_room, pos);
-        }
-        // OY move case
-        else if(ch->transform[4 + 1] > 0.8)
-        {
-            float pos[] = {(float)(obj_s->pos[0]), (float)(obj_s->pos[1] - TR_METERING_SECTORSIZE), (float)0.0};
-            ch_s = Room_GetSectorRaw(obj_s->owner_room, pos);
-        }
-        else if(ch->transform[4 + 1] < -0.8)
-        {
-            float pos[] = {(float)(obj_s->pos[0]), (float)(obj_s->pos[1] + TR_METERING_SECTORSIZE), (float)0.0};
-            ch_s = Room_GetSectorRaw(obj_s->owner_room, pos);
-        }
-        ch_s = Sector_GetPortalSectorTarget(ch_s);
-    }
+    room_sector_p ch_s  = ch->current_sector;
+    room_sector_p obj_s = obj->current_sector;
 
     if((ch_s == NULL) || (obj_s == NULL))
     {
@@ -1908,29 +1893,29 @@ int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
     }
 
     float floor = ch->transform[12 + 2];
-    if((ch_s->floor != obj_s->floor) || (Sector_AllowTraverse(ch_s, floor, ch->self) == 0x00) || (Sector_AllowTraverse(obj_s, floor, obj->self) == 0x00))
+    if((Sector_AllowTraverse(ch_s, floor) == 0x00) || (Sector_AllowTraverse(obj_s, floor) == 0x00))
     {
         return 0x00;
     }
 
-    collision_result_t cb;
-    float from[3], to[3];
-
-    to[0] = from[0] = obj_s->pos[0];
-    to[1] = from[1] = obj_s->pos[1];
-    from[2] = floor + TR_METERING_SECTORSIZE * 0.5;
-    to[2] = floor + TR_METERING_SECTORSIZE * 2.5;
-    if(Physics_RayTest(&cb, from, to, obj->self))
+    for(engine_container_p cont = obj_s->owner_room->real_room->content->containers; cont; cont = cont->next)
     {
-        if((cb.obj != NULL) && (cb.obj->object_type == OBJECT_ENTITY) && (((entity_p)cb.obj->object)->type_flags & ENTITY_TYPE_TRAVERSE))
+        if(cont->object_type == OBJECT_ENTITY)
         {
-            return 0x00;
+            entity_p ent = (entity_p)cont->object;
+            if((ent->type_flags & (ENTITY_TYPE_TRAVERSE | ENTITY_TYPE_TRAVERSE_FLOOR)) &&
+               (fabs(ent->transform[12 + 2] - TR_METERING_SECTORSIZE - floor) < 1.1f) &&
+               (fabs(ent->transform[12 + 0] - obj_s->pos[0]) < 1.1f) &&
+               (fabs(ent->transform[12 + 1] - obj_s->pos[1]) < 1.1f))
+            {
+                return 0x00;
+            }
         }
     }
 
     int ret = 0x00;
     room_sector_p next_s = NULL;
-
+    const float r_test = 0.44f * TR_METERING_SECTORSIZE;
     /*
      * PUSH MOVE CHECK
      */
@@ -1938,28 +1923,29 @@ int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
     if(ch->transform[4 + 0] > 0.8)
     {
         float pos[] = {(float)(obj_s->pos[0] + TR_METERING_SECTORSIZE), (float)(obj_s->pos[1]), (float)0.0};
-        next_s = Room_GetSectorRaw(obj_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(obj_s->owner_room->real_room, pos);
     }
     else if(ch->transform[4 + 0] < -0.8)
     {
         float pos[] = {(float)(obj_s->pos[0] - TR_METERING_SECTORSIZE), (float)(obj_s->pos[1]), (float)0.0};
-        next_s = Room_GetSectorRaw(obj_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(obj_s->owner_room->real_room, pos);
     }
     // OY move case
     else if(ch->transform[4 + 1] > 0.8)
     {
         float pos[] = {(float)(obj_s->pos[0]), (float)(obj_s->pos[1] + TR_METERING_SECTORSIZE), (float)0.0};
-        next_s = Room_GetSectorRaw(obj_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(obj_s->owner_room->real_room, pos);
     }
     else if(ch->transform[4 + 1] < -0.8)
     {
         float pos[] = {(float)(obj_s->pos[0]), (float)(obj_s->pos[1] - TR_METERING_SECTORSIZE), (float)0.0};
-        next_s = Room_GetSectorRaw(obj_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(obj_s->owner_room->real_room, pos);
     }
 
-    next_s = Sector_GetPortalSectorTarget(next_s);
-    if((next_s != NULL) && (Sector_AllowTraverse(next_s, floor, ch->self) == 0x01))
+    next_s = Sector_GetPortalSectorTargetReal(next_s);
+    if((next_s != NULL) && (Sector_AllowTraverse(next_s, floor) == 0x01))
     {
+        float from[3], to[3];
         from[0] = obj_s->pos[0];
         from[1] = obj_s->pos[1];
         from[2] = floor + 0.5 * TR_METERING_SECTORSIZE;
@@ -1967,7 +1953,7 @@ int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
         to[0] = next_s->pos[0];
         to[1] = next_s->pos[1];
         to[2] = from[2];
-        if(!Physics_SphereTest(NULL, from ,to, 0.48 * TR_METERING_SECTORSIZE, obj->self))
+        if(!Physics_SphereTest(NULL, from, to, r_test, obj->self, COLLISION_FILTER_HEIGHT_TEST))
         {
             ret |= 0x01;                                                        // can traverse forvard
         }
@@ -1981,28 +1967,29 @@ int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
     if(ch->transform[4 + 0] > 0.8)
     {
         float pos[] = {(float)(ch_s->pos[0] - TR_METERING_SECTORSIZE), (float)(ch_s->pos[1]), (float)0.0};
-        next_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(ch_s->owner_room->real_room, pos);
     }
     else if(ch->transform[4 + 0] < -0.8)
     {
         float pos[] = {(float)(ch_s->pos[0] + TR_METERING_SECTORSIZE), (float)(ch_s->pos[1]), (float)0.0};
-        next_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(ch_s->owner_room->real_room, pos);
     }
     // OY move case
     else if(ch->transform[4 + 1] > 0.8)
     {
         float pos[] = {(float)(ch_s->pos[0]), (float)(ch_s->pos[1] - TR_METERING_SECTORSIZE), (float)0.0};
-        next_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(ch_s->owner_room->real_room, pos);
     }
     else if(ch->transform[4 + 1] < -0.8)
     {
         float pos[] = {(float)(ch_s->pos[0]), (float)(ch_s->pos[1] + TR_METERING_SECTORSIZE), (float)0.0};
-        next_s = Room_GetSectorRaw(ch_s->owner_room, pos);
+        next_s = Room_GetSectorRaw(ch_s->owner_room->real_room, pos);
     }
 
-    next_s = Sector_GetPortalSectorTarget(next_s);
-    if((next_s != NULL) && (Sector_AllowTraverse(next_s, floor, ch->self) == 0x01))
+    next_s = Sector_GetPortalSectorTargetReal(next_s);
+    if((next_s != NULL) && (Sector_AllowTraverse(next_s, floor) == 0x01))
     {
+        float from[3], to[3];
         from[0] = ch_s->pos[0];
         from[1] = ch_s->pos[1];
         from[2] = floor + 0.5 * TR_METERING_SECTORSIZE;
@@ -2010,7 +1997,7 @@ int Character_CheckTraverse(struct entity_s *ch, struct entity_s *obj)
         to[0] = next_s->pos[0];
         to[1] = next_s->pos[1];
         to[2] = from[2];
-        if(!Physics_SphereTest(NULL, from ,to, 0.48 * TR_METERING_SECTORSIZE, ch->self))
+        if(!Physics_SphereTest(NULL, from ,to, r_test, ch->self, COLLISION_FILTER_HEIGHT_TEST))
         {
             ret |= 0x02;                                                        // can traverse backvard
         }
@@ -2042,13 +2029,20 @@ void Character_ApplyCommands(struct entity_s *ent)
         ent->character->state_func(ent, &ent->bf->animations);
     }
 
+    ent->no_fix_z = 0x00;
     switch(ent->move_type)
     {
+        case MOVE_KINEMATIC:
+        case MOVE_STATIC_POS:
+            //Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
+            break;
+
         case MOVE_ON_FLOOR:
             Character_MoveOnFloor(ent);
             break;
 
         case MOVE_FREE_FALLING:
+            ent->no_fix_z = 0x01;
             Character_FreeFalling(ent);
             break;
 
@@ -2072,18 +2066,22 @@ void Character_ApplyCommands(struct entity_s *ent)
             Character_MoveOnWater(ent);
             break;
 
+        case MOVE_FLY:
+            Entity_FixPenetrations(ent, NULL, COLLISION_FILTER_CHARACTER);
+            break;
+
         default:
             ent->move_type = MOVE_ON_FLOOR;
             break;
     };
 
-    Entity_UpdateRigidBody(ent, 1);
     Character_UpdatePlatformPostStep(ent);
 }
 
 void Character_UpdateParams(struct entity_s *ent)
 {
     float speed = engine_frame_time / GAME_LOGIC_REFRESH_INTERVAL;
+    uint16_t current_state = Anim_GetCurrentState(&ent->bf->animations);
 
     if(ent->character->weapon_current_state != WEAPON_STATE_HIDE)
     {
@@ -2121,8 +2119,8 @@ void Character_UpdateParams(struct entity_s *ent)
                 Character_SetParam(ent, PARAM_AIR, PARAM_ABSOLUTE_MAX);
             }
 
-            if((ent->bf->animations.current_state == TR_STATE_LARA_SPRINT) ||
-               (ent->bf->animations.current_state == TR_STATE_LARA_SPRINT_ROLL))
+            if((current_state == TR_STATE_LARA_SPRINT) ||
+               (current_state == TR_STATE_LARA_SPRINT_ROLL))
             {
                 Character_ChangeParam(ent, PARAM_STAMINA, -0.5 * speed);
             }
@@ -2182,12 +2180,12 @@ int Character_SetParam(struct entity_s *ent, int parameter, float value)
 
 float Character_GetParam(struct entity_s *ent, int parameter)
 {
-    if(!ent || !ent->character || (parameter >= PARAM_LASTINDEX))
+    if(ent && ent->character && (parameter < PARAM_LASTINDEX))
     {
-        return 0;
+        return ent->character->parameters.param[parameter];
     }
 
-    return ent->character->parameters.param[parameter];
+    return 0;
 }
 
 int Character_ChangeParam(struct entity_s *ent, int parameter, float value)
@@ -2220,6 +2218,58 @@ int Character_ChangeParam(struct entity_s *ent, int parameter, float value)
     }
 
     return 1;
+}
+
+
+int Character_IsTargetAccessible(struct entity_s *character, struct entity_s *target)
+{
+    int ret = 0;
+    if(target && (target->state_flags & ENTITY_STATE_ACTIVE))
+    {
+        collision_result_t cs;
+        float dir[3], t;
+        vec3_sub(dir, target->transform + 12, character->transform + 12);
+        vec3_norm(dir, t);
+        t = vec3_dot(character->transform + 4, dir);
+        ret = (t > 0.0f) && (!Physics_RayTest(&cs, character->obb->centre, target->obb->centre, character->self, COLLISION_FILTER_CHARACTER) || (cs.obj == target->self));
+    }
+
+    return ret;
+}
+
+
+struct entity_s *Character_FindTarget(struct entity_s *ent)
+{
+    entity_p ret = NULL;
+    float max_dot = 0.0f;
+    collision_result_t cs;
+
+    for(int ri = -1; ri < ent->self->room->near_room_list_size; ++ri)
+    {
+        room_p r = (ri >= 0) ? (ent->self->room->near_room_list[ri]) : (ent->self->room);
+        for(engine_container_p cont = r->content->containers; cont; cont = cont->next)
+        {
+            if(cont->object_type == OBJECT_ENTITY)
+            {
+                entity_p target = (entity_p)cont->object;
+                if((target->type_flags & ENTITY_TYPE_ACTOR) && (target->state_flags & ENTITY_STATE_ACTIVE) &&
+                   (!target->character || (target->character->parameters.param[PARAM_HEALTH] > 0.0f)))
+                {
+                    float dir[3], t;
+                    vec3_sub(dir, target->transform + 12, ent->transform + 12);
+                    vec3_norm(dir, t);
+                    t = vec3_dot(ent->transform + 4, dir);
+                    if((t > max_dot) && (!Physics_RayTest(&cs, ent->obb->centre, target->obb->centre, ent->self, COLLISION_FILTER_CHARACTER) || (cs.obj == target->self)))
+                    {
+                        max_dot = t;
+                        ret = target;
+                    }
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 
@@ -2257,7 +2307,6 @@ int Character_SetWeaponModel(struct entity_s *ent, int weapon_model, int weapon_
             anim_rh->model = sm;
             anim_rh->onEndFrame = NULL;
             anim_rh->onFrame = Character_DoOneHandWeponFrame;
-            anim_rh->current_state = WEAPON_STATE_HIDE;
             anim_rh->next_state = WEAPON_STATE_HIDE;
 
             ss_animation_p anim_lh = SSBoneFrame_GetOverrideAnim(ent->bf, ANIM_TYPE_WEAPON_LH);
@@ -2268,7 +2317,6 @@ int Character_SetWeaponModel(struct entity_s *ent, int weapon_model, int weapon_
             anim_lh->model = sm;
             anim_lh->onEndFrame = NULL;
             anim_lh->onFrame = Character_DoOneHandWeponFrame;
-            anim_lh->current_state = WEAPON_STATE_HIDE;
             anim_lh->next_state = WEAPON_STATE_HIDE;
 
             anim_rh->enabled = 1;
@@ -2290,7 +2338,6 @@ int Character_SetWeaponModel(struct entity_s *ent, int weapon_model, int weapon_
             anim_th->model = sm;
             anim_th->onEndFrame = NULL;
             anim_th->onFrame = Character_DoTwoHandWeponFrame;
-            anim_th->current_state = WEAPON_STATE_HIDE;
             anim_th->next_state = WEAPON_STATE_HIDE;
             SSBoneFrame_EnableOverrideAnim(ent->bf, anim_th);
         }
@@ -2376,6 +2423,11 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
     int16_t old_anim = ss_anim->next_animation;
     int16_t old_frame = ss_anim->next_frame;
 
+    /*static float d_from[3] = {0.0f, 0.0f, 0.0f};
+    static float d_to[3] = {0.0f, 0.0f, 0.0f};
+    static float color[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    renderer.debugDrawer->DrawLine(d_from, d_to, color, color);*/
+
     if(ss_anim->model->animation_count == 4)
     {
         const float bone_dir[] = {0.0f, 1.0f, 0.0f};
@@ -2407,7 +2459,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
         }
 
         ss_anim->anim_ext_flags &= ~ANIM_EXT_TARGET_TO;
-        switch(ss_anim->current_state)
+        switch(ss_anim->next_state)
         {
             case WEAPON_STATE_HIDE:
                 if(ent->character->cmd.ready_weapon)   // ready weapon
@@ -2415,7 +2467,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->current_animation = 2;
                     ss_anim->current_frame = 0;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_HIDE_TO_READY;
+                    ss_anim->next_state = WEAPON_STATE_HIDE_TO_READY;
                     ent->character->weapon_current_state = WEAPON_STATE_IDLE;
                 }
                 break;
@@ -2444,7 +2496,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_frame = 0;
                     ss_anim->next_animation = 0;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE;
                 }
                 break;
 
@@ -2460,11 +2512,11 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_animation = 2;
                     ss_anim->current_frame = ss_anim->next_frame = ss_anim->model->animations[ss_anim->current_animation].max_frame - 1;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_HIDE;
                 }
                 else if((!silent && ent->character->cmd.action) || target)
                 {
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_FIRE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_FIRE;
                 }
                 else
                 {
@@ -2489,7 +2541,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                 {
                     ss_anim->next_frame = ss_anim->current_frame = 0;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE;
                 }
                 break;
 
@@ -2505,7 +2557,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->current_animation = 2;
                     ss_anim->next_animation = 2;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_HIDE;
                     break;
                 }
 
@@ -2539,13 +2591,13 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_frame = 1;
                     ss_anim->current_animation = 3;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_FIRE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE;
                 }
                 else
                 {
                     ss_anim->frame_time = 0.0;
                     ss_anim->current_frame = ss_anim->model->animations[ss_anim->current_animation].max_frame - 1;
-                    ss_anim->current_state = WEAPON_STATE_FIRE_TO_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE_TO_IDLE;
                 }
                 break;
 
@@ -2575,6 +2627,30 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     }
                     else
                     {
+                        ent->character->parameters.param[PARAM_HIT_DAMAGE] = 25.0f;
+                        if(target)
+                        {
+                            Script_ExecEntity(engine_lua, ENTITY_CALLBACK_HIT, target->id, ent->id);
+                        }
+                        else
+                        {
+                            collision_result_t cs;
+                            float from[3], to[3], tr[16];
+                            ss_bone_tag_p bt = ent->bf->bone_tags + targeted_bone + 2;
+                            Mat4_Mat4_mul(tr, ent->transform, bt->full_transform);
+                            vec3_copy(from, tr + 12);
+                            vec3_add_mul(to, from, tr + 8, -32768.0f);
+
+                            //vec3_copy(d_from, from);
+                            //vec3_copy(d_to, to);
+
+                            if(Physics_RayTest(&cs, from, to, ent->self, COLLISION_FILTER_CHARACTER) && cs.obj && (cs.obj->object_type == OBJECT_ENTITY))
+                            {
+                                target = (entity_p)cs.obj->object;
+                                Script_ExecEntity(engine_lua, ENTITY_CALLBACK_HIT, target->id, ent->id);
+                            }
+                        }
+
                         ss_anim->frame_time = dt;
                         ss_anim->current_frame = 0;
                         ss_anim->next_frame = 1;
@@ -2587,7 +2663,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_animation = ss_anim->current_animation;
                     ss_anim->current_frame = ss_anim->model->animations[ss_anim->current_animation].max_frame - 1;
                     ss_anim->next_frame = (ss_anim->current_frame > 0) ? (ss_anim->current_frame - 1) : (0);
-                    ss_anim->current_state = WEAPON_STATE_FIRE_TO_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE_TO_IDLE;
                 }
                 break;
 
@@ -2608,7 +2684,7 @@ int Character_DoOneHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                 {
                     ss_anim->next_frame = ss_anim->current_frame = 0;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_HIDE;
                     ent->character->weapon_current_state = WEAPON_STATE_HIDE;
                     Character_SetWeaponModel(ent, ent->character->current_weapon, WEAPON_STATE_HIDE);
                 }
@@ -2641,6 +2717,11 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
     int16_t old_anim = ss_anim->next_animation;
     int16_t old_frame = ss_anim->next_frame;
 
+    /*static float d_from[3] = {0.0f, 0.0f, 0.0f};
+    static float d_to[3] = {0.0f, 0.0f, 0.0f};
+    static float color[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    renderer.debugDrawer->DrawLine(d_from, d_to, color, color);*/
+
     if(ss_anim->model->animation_count > 4)
     {
         float dt;
@@ -2662,8 +2743,8 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
         }
         ss_anim->anim_ext_flags &= ~ANIM_EXT_TARGET_TO;
         Character_ClearLookAt(ent);
-
-        switch(ss_anim->current_state)
+        //ss_anim->model->animations[ss_anim->current_animation].state_id;
+        switch(ss_anim->next_state)
         {
             case WEAPON_STATE_HIDE:
                 if(ent->character->cmd.ready_weapon)   // ready weapon
@@ -2673,7 +2754,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->current_frame = 0;
                     ss_anim->next_frame = 0;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_HIDE_TO_READY;
+                    ss_anim->next_state = WEAPON_STATE_HIDE_TO_READY;
                     ent->character->weapon_current_state = WEAPON_STATE_IDLE;
                 }
                 break;
@@ -2702,7 +2783,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_frame = 0;
                     ss_anim->next_animation = 0;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE;
                 }
                 break;
 
@@ -2718,11 +2799,11 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_animation = 3;
                     //ss_anim->current_frame = ss_anim->next_frame = 0;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_HIDE;
                 }
                 else if(ent->character->cmd.action || target)
                 {
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_FIRE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_FIRE;
                 }
                 else
                 {
@@ -2747,7 +2828,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                 {
                     ss_anim->next_frame = ss_anim->current_frame = 0;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE;
                 }
                 break;
 
@@ -2763,7 +2844,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->current_animation = 3;
                     ss_anim->next_animation = 3;
                     ss_anim->frame_time = 0.0;
-                    ss_anim->current_state = WEAPON_STATE_IDLE_TO_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_IDLE_TO_HIDE;
                     break;
                 }
 
@@ -2797,13 +2878,13 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_frame = 1;
                     ss_anim->current_animation = 2;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_FIRE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE;
                 }
                 else
                 {
                     ss_anim->frame_time = 0.0;
                     ss_anim->current_frame = ss_anim->model->animations[ss_anim->current_animation].max_frame - 1;
-                    ss_anim->current_state = WEAPON_STATE_FIRE_TO_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE_TO_IDLE;
                 }
                 break;
 
@@ -2833,6 +2914,29 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     }
                     else
                     {
+                        ent->character->parameters.param[PARAM_HIT_DAMAGE] = 180.0f;
+                        if(target)
+                        {
+                            Script_ExecEntity(engine_lua, ENTITY_CALLBACK_HIT, target->id, ent->id);
+                        }
+                        else
+                        {
+                            collision_result_t cs;
+                            float from[3], to[3], tr[16];
+                            ss_bone_tag_p bt = ent->bf->bone_tags + 10;
+                            Mat4_Mat4_mul(tr, ent->transform, bt->full_transform);
+                            vec3_copy(from, tr + 12);
+                            vec3_add_mul(to, from, tr + 8, -32768.0f);
+
+                            //vec3_copy(d_from, from);
+                            //vec3_copy(d_to, to);
+
+                            if(Physics_RayTest(&cs, from, to, ent->self, COLLISION_FILTER_CHARACTER) && cs.obj && (cs.obj->object_type == OBJECT_ENTITY))
+                            {
+                                target = (entity_p)cs.obj->object;
+                                Script_ExecEntity(engine_lua, ENTITY_CALLBACK_HIT, target->id, ent->id);
+                            }
+                        }
                         ss_anim->frame_time = dt;
                         ss_anim->current_frame = 0;
                         ss_anim->next_frame = 1;
@@ -2845,7 +2949,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                     ss_anim->next_animation = ss_anim->current_animation;
                     ss_anim->current_frame = ss_anim->model->animations[ss_anim->current_animation].max_frame - 1;
                     ss_anim->next_frame = (ss_anim->current_frame > 0) ? (ss_anim->current_frame - 1) : (0);
-                    ss_anim->current_state = WEAPON_STATE_FIRE_TO_IDLE;
+                    ss_anim->next_state = WEAPON_STATE_FIRE_TO_IDLE;
                 }
                 break;
 
@@ -2864,7 +2968,7 @@ int Character_DoTwoHandWeponFrame(struct entity_s *ent, struct  ss_animation_s *
                 {
                     ss_anim->next_frame = ss_anim->current_frame = 0;
                     ss_anim->next_animation = ss_anim->current_animation;
-                    ss_anim->current_state = WEAPON_STATE_HIDE;
+                    ss_anim->next_state = WEAPON_STATE_HIDE;
                     ent->character->weapon_current_state = WEAPON_STATE_HIDE;
                     Character_SetWeaponModel(ent, ent->character->current_weapon, WEAPON_STATE_HIDE);
                 }
