@@ -2,15 +2,16 @@
 #include <stdio.h>
 #include <string>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../core/system.h"
 #include "../core/vmath.h"
 #include "../core/polygon.h"
 #include "../core/obb.h"
+#include "../room.h"
 #include "render.h"
 #include "frustum.h"
 #include "camera.h"
-#include "../room.h"
 
 
 #define SPLIT_EMPTY         (0x00)

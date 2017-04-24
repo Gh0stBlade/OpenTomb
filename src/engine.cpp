@@ -305,6 +305,7 @@ void Engine_Init_Pre()
     Sys_Init();
     GLText_Init();
     Con_Init();
+    Gameflow_Init();
     Con_SetExecFunction(Engine_ExecCmd);
     Script_LuaInit();
 
@@ -891,7 +892,7 @@ void Engine_MainLoop()
         if(screen_info.debug_view_state != debug_view_state_e::model_view)
         {
             Game_Frame(time);
-            gameflow.Do();
+            Gameflow_ProcessCommands();
         }
         Audio_Update(time);
         Engine_Display();
@@ -1322,7 +1323,7 @@ void Engine_GetLevelName(char *name, const char *path)
 void Engine_GetLevelScriptNameLocal(int game_version, char *name, uint32_t buf_size)
 {
     char level_name[LEVEL_NAME_MAX_LEN];
-    Engine_GetLevelName(level_name, gameflow.getCurrentLevelPathLocal());
+    Engine_GetLevelName(level_name, Gameflow_GetCurrentLevelPathLocal());
 
     name[0] = 0;
     strncat(name, "scripts/level/", buf_size);
@@ -1389,13 +1390,9 @@ int Engine_LoadMap(const char *name)
     size_t map_len = strlen(name);
     size_t base_len = strlen(base_path);
     size_t buf_len = map_len + base_len + 1;
+	
+    char *map_name_buf = (char*)Sys_GetTempMem(buf_len);
 
-#ifdef _MSC_VER///@GH0ST
-	char *map_name_buf = (char*)malloc(sizeof(char) * buf_len);
-#else
-	char map_name_buf[buf_len];
-#endif
-   
     strncpy(map_name_buf, base_path, buf_len);
     strncat(map_name_buf, name, buf_len);
 
@@ -1411,19 +1408,16 @@ int Engine_LoadMap(const char *name)
     Gui_DrawLoadScreen(0);
 
     // it is needed for "not in the game" levels or correct saves loading.
-    gameflow.setCurrentLevelPath(map_name_buf);
+    Gameflow_SetCurrentLevelPath(map_name_buf);
 
     Gui_DrawLoadScreen(100);
 
-
     // Here we can place different platform-specific level loading routines.
+    bool is_success_load = false;
     switch(VT_Level::get_level_format(map_name_buf))
     {
         case LEVEL_FORMAT_PC:
-            if(!Engine_LoadPCLevel(map_name_buf))
-            {
-                return 0;
-            }
+            is_success_load = Engine_LoadPCLevel(map_name_buf);
             break;
 
         /*case LEVEL_FORMAT_PSX:
@@ -1441,27 +1435,27 @@ int Engine_LoadMap(const char *name)
         default:
             return 0;
     }
+    Sys_ReturnTempMem(buf_len);
 
-    Game_Prepare();
+    if(is_success_load)
+    {
+        Game_Prepare();
 
-    room_p rooms;
-    uint32_t rooms_count;
-    anim_seq_p seq;
-    uint32_t seq_count;
+        room_p rooms;
+        uint32_t rooms_count;
+        anim_seq_p seq;
+        uint32_t seq_count;
 
-    World_GetRoomInfo(&rooms, &rooms_count);
-    World_GetAnimSeqInfo(&seq, &seq_count);
-    renderer.ResetWorld(rooms, rooms_count, seq, seq_count);
+        World_GetRoomInfo(&rooms, &rooms_count);
+        World_GetAnimSeqInfo(&seq, &seq_count);
+        renderer.ResetWorld(rooms, rooms_count, seq, seq_count);
 
-    Gui_DrawLoadScreen(1000);
-    Gui_NotifierStop();
-    engine_set_zero_time = 1;
+        Gui_DrawLoadScreen(1000);
+        Gui_NotifierStop();
+        engine_set_zero_time = 1;
+    }
 
-#ifdef _MSC_VER///@GH0ST
-	free(map_name_buf);
-#endif
-
-    return 1;
+    return is_success_load;
 }
 
 
@@ -1677,7 +1671,7 @@ int Engine_ExecCmd(char *ch)
             }
             else
             {
-                Con_AddText("Not avaliable =(", FONTSTYLE_CONSOLE_WARNING);
+                Con_AddText("Not available =(", FONTSTYLE_CONSOLE_WARNING);
             }
             return 1;
         }
